@@ -157,8 +157,8 @@ describe('VirtualPortfolio', () => {
     const pos = snap.openPositions[0];
 
     expect(pos.currentPrice).toBe(0.35);
-    expect(pos.unrealizedPnl).toBe(40); // 400 * (0.35 - 0.25) = 40
-    expect(pos.unrealizedPnlPct).toBe(40); // +40%
+    expect(pos.unrealizedPnl).toBeCloseTo(40, 2); // 400 * (0.35 - 0.25) = 40
+    expect(pos.unrealizedPnlPct).toBeCloseTo(40, 2); // +40%
   });
 
   it('circuit breaker per consecutive losses', () => {
