@@ -44,7 +44,7 @@ export class AICacheManager {
   /** Invalidate all keys matching a prefix */
   invalidatePrefix(prefix: string): number {
     let count = 0;
-    for (const key of this.cache.keys()) {
+    for (const key of Array.from(this.cache.keys())) {
       if (key.startsWith(prefix)) {
         this.cache.delete(key);
         count++;

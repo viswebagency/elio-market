@@ -15,7 +15,7 @@ async function getEncryptionKey(): Promise<CryptoKey> {
   const keyBytes = hexToBytes(keyHex);
   return crypto.subtle.importKey(
     'raw',
-    keyBytes,
+    keyBytes.buffer as ArrayBuffer,
     { name: ALGORITHM, length: KEY_LENGTH },
     false,
     ['encrypt', 'decrypt']
@@ -51,9 +51,9 @@ export async function decrypt(encrypted: string): Promise<string> {
   const ciphertext = hexToBytes(ctHex);
 
   const plaintext = await crypto.subtle.decrypt(
-    { name: ALGORITHM, iv },
+    { name: ALGORITHM, iv: iv.buffer as ArrayBuffer },
     key,
-    ciphertext
+    ciphertext.buffer as ArrayBuffer
   );
 
   const decoder = new TextDecoder();

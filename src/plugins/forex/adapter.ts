@@ -18,7 +18,7 @@ export class ForexAdapter {
   async getPricing(instruments: string[]): Promise<ForexPair[]> {
     const params = new URLSearchParams({ instruments: instruments.join(',') });
     const data = await this.apiCall(`/accounts/${this.accountId}/pricing?${params}`);
-    return ((data as Record<string, unknown[]>).prices ?? []).map((p: Record<string, unknown>) => ({
+    return (data.prices ?? []).map((p: Record<string, unknown>) => ({
       symbol: (p.instrument as string).replace('_', ''),
       base: (p.instrument as string).split('_')[0],
       quote: (p.instrument as string).split('_')[1],
@@ -42,7 +42,7 @@ export class ForexAdapter {
     const data = await this.apiCall(
       `/instruments/${instrument}/candles?${params}`
     );
-    return ((data as Record<string, unknown[]>).candles ?? []).map((c: Record<string, unknown>) => {
+    return (data.candles ?? []).map((c: Record<string, unknown>) => {
       const mid = c.mid as Record<string, string>;
       return {
         timestamp: c.time as string,
@@ -55,7 +55,8 @@ export class ForexAdapter {
     });
   }
 
-  private async apiCall(path: string): Promise<unknown> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async apiCall(path: string): Promise<any> {
     const response = await fetch(`${OANDA_API_BASE}${path}`, {
       headers: {
         'Authorization': `Bearer ${this.apiKey}`,

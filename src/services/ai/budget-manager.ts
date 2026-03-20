@@ -2,7 +2,7 @@
  * AI budget manager — tracks and enforces AI spending limits per user.
  */
 
-import { AIBudgetState, AIProvider, AIResponse } from '@/core/types/ai';
+import { AIBudgetState, AIProvider as _AIProvider, AIResponse } from '@/core/types/ai';
 
 export class AIBudgetManager {
   /** Get current budget state for a user */

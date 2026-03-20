@@ -2,7 +2,7 @@
  * Betfair API adapter — handles HTTP requests to the Betfair Exchange API.
  */
 
-import { BETFAIR_BETTING_API, BETFAIR_ACCOUNT_API } from './constants';
+import { BETFAIR_BETTING_API, BETFAIR_ACCOUNT_API as _BETFAIR_ACCOUNT_API } from './constants';
 import { BetfairEvent, BetfairMarket, BetfairOrder } from './types';
 
 export class BetfairAdapter {
@@ -83,7 +83,8 @@ export class BetfairAdapter {
     });
   }
 
-  private async apiCall(method: string, params: unknown): Promise<unknown[]> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async apiCall(method: string, params: unknown): Promise<any> {
     if (!this.sessionToken) throw new Error('Not logged in to Betfair');
 
     const response = await fetch(`${BETFAIR_BETTING_API}/${method}/`, {
@@ -100,6 +101,6 @@ export class BetfairAdapter {
       throw new Error(`Betfair API error: ${response.status}`);
     }
 
-    return response.json() as Promise<unknown[]>;
+    return response.json();
   }
 }

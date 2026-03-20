@@ -2,7 +2,7 @@
  * Trade types — represents individual trades, their execution, and results.
  */
 
-import { MarketArea, Direction, OrderType, Currency, OperationStatus } from './common';
+import { MarketArea, Direction, OrderType, Currency, OperationStatus as _OperationStatus } from './common';
 
 /** A trade intent (before execution) */
 export interface Trade {

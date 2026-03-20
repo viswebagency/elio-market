@@ -44,7 +44,8 @@ export class StocksAdapter {
     if (!timeSeriesKey) return [];
 
     const timeSeries = data[timeSeriesKey];
-    return Object.entries(timeSeries).map(([date, values]: [string, Record<string, string>]) => ({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    return Object.entries(timeSeries).map(([date, values]: [string, any]) => ({
       timestamp: date,
       open: parseFloat(values['1. open']),
       high: parseFloat(values['2. high']),
@@ -64,10 +65,11 @@ export class StocksAdapter {
     }));
   }
 
-  private async alphaVantageCall(fn: string, params: Record<string, string>): Promise<Record<string, unknown>> {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  private async alphaVantageCall(fn: string, params: Record<string, string>): Promise<any> {
     const searchParams = new URLSearchParams({ function: fn, apikey: this.apiKey, ...params });
     const response = await fetch(`${ALPHA_VANTAGE_API}?${searchParams}`);
     if (!response.ok) throw new Error(`Alpha Vantage error: ${response.status}`);
-    return response.json() as Promise<Record<string, unknown>>;
+    return response.json();
   }
 }

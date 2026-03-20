@@ -12,5 +12,5 @@ export const siteConfig = {
   keywords: [
     'trading', 'prediction markets', 'polymarket', 'betfair',
     'stocks', 'forex', 'crypto', 'backtesting', 'AI trading',
-  ],
-} as const;
+  ] as string[],
+};

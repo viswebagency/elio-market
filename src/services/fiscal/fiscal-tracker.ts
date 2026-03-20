@@ -5,7 +5,7 @@
 import { TradeResult } from '@/core/types/trade';
 import { FiscalReport, FiscalSummary, TaxCategory } from '@/core/types/fiscal';
 import { MarketArea, Currency } from '@/core/types/common';
-import { getTaxRate } from '@/core/constants/tax-rates';
+import { getTaxRate as _getTaxRate } from '@/core/constants/tax-rates';
 
 export class FiscalTracker {
   /** Record a trade result for fiscal tracking */

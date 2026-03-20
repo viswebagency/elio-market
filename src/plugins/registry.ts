@@ -67,7 +67,7 @@ class PluginRegistry {
   /** Health check all plugins */
   async healthCheckAll(): Promise<Record<string, boolean>> {
     const results: Record<string, boolean> = {};
-    for (const [id, plugin] of this.plugins) {
+    for (const [id, plugin] of Array.from(this.plugins)) {
       try {
         results[id] = await plugin.healthCheck();
       } catch {

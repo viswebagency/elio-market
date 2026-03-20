@@ -24,7 +24,7 @@ export class PolymarketWebSocket {
         this.ws.onopen = () => {
           this.reconnectAttempts = 0;
           // Re-subscribe to existing subscriptions
-          for (const marketId of this.subscriptions.keys()) {
+          for (const marketId of Array.from(this.subscriptions.keys())) {
             this.sendSubscribe(marketId);
           }
           resolve();

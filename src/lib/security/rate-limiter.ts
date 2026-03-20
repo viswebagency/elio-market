@@ -44,7 +44,7 @@ export class RateLimiter {
   /** Clear expired entries */
   cleanup(maxAgeMs = 3600000): void {
     const now = Date.now();
-    for (const [key, entry] of this.store) {
+    for (const [key, entry] of Array.from(this.store.entries())) {
       if (now - entry.lastRefill > maxAgeMs) {
         this.store.delete(key);
       }

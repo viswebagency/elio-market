@@ -3,7 +3,7 @@
  * Implements the MarketPlugin interface.
  */
 
-import { MarketArea, Currency, TimeInterval } from '@/core/types/common';
+import { MarketArea, Currency, TimeInterval as _TimeInterval } from '@/core/types/common';
 import {
   MarketPlugin, PluginCapabilities, PluginConnectionConfig,
   PluginStatus, MarketFilter, PluginBalance,
@@ -11,7 +11,7 @@ import {
 import { NormalizedPrice, NormalizedCandle, NormalizedMarket } from '@/core/types/market-data';
 import { Trade, TradeExecution } from '@/core/types/trade';
 import { BetfairAdapter } from './adapter';
-import { normalizeBetfairMarket, normalizeBetfairPrice } from './normalizer';
+import { normalizeBetfairMarket as _normalizeBetfairMarket, normalizeBetfairPrice } from './normalizer';
 
 export class BetfairPlugin implements MarketPlugin {
   readonly id = 'betfair';

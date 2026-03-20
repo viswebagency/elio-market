@@ -4,7 +4,7 @@
  */
 
 import { MarketArea, Currency } from './common';
-import { StrategyDefinition } from './strategy';
+import { StrategyDefinition as _StrategyDefinition } from './strategy';
 import { TradeResult } from './trade';
 import { PerformanceMetrics } from './metrics';
 

@@ -47,7 +47,7 @@ export class StocksWebSocket {
   }
 
   private async poll(): Promise<void> {
-    for (const symbol of this.subscriptions.keys()) {
+    for (const symbol of Array.from(this.subscriptions.keys())) {
       try {
         const quote = await this.adapter.getQuote(symbol);
         const normalized = normalizeStockQuote(quote);

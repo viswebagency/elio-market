@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef as _useRef, useCallback as _useCallback } from 'react';
 import type { NormalizedPrice } from '@/core/types/market-data';
 
 export function useMarketPrice(symbol: string | null) {

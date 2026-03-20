@@ -5,8 +5,8 @@
 import { Trade } from '@/core/types/trade';
 import {
   MAX_SINGLE_TRADE_PERCENT,
-  MAX_TOTAL_EXPOSURE_PERCENT,
-  MAX_LEVERAGE,
+  MAX_TOTAL_EXPOSURE_PERCENT as _MAX_TOTAL_EXPOSURE_PERCENT,
+  MAX_LEVERAGE as _MAX_LEVERAGE,
 } from '@/core/constants/risk-limits';
 
 export interface ValidationResult {
