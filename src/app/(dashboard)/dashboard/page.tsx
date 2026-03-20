@@ -219,7 +219,7 @@ export default function DashboardPage() {
                         {area.nameIt}
                       </span>
                     </CardTitle>
-                    <Badge variant={isConnected ? 'default' : 'secondary'}>
+                    <Badge variant={isConnected ? 'success' : 'default'}>
                       {isConnected ? 'Attivo' : 'Non connesso'}
                     </Badge>
                   </div>
@@ -289,11 +289,11 @@ export default function DashboardPage() {
                       </td>
                       <td className="text-right py-2 pl-2">
                         {s.isCircuitBroken ? (
-                          <Badge variant="destructive">CB</Badge>
+                          <Badge variant="danger">CB</Badge>
                         ) : s.status === 'running' ? (
-                          <Badge variant="default">Attivo</Badge>
+                          <Badge variant="success">Attivo</Badge>
                         ) : (
-                          <Badge variant="secondary">{s.status}</Badge>
+                          <Badge variant="warning">{s.status}</Badge>
                         )}
                       </td>
                     </tr>
