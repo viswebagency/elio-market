@@ -12,6 +12,9 @@ import {
   TelegramCallbackQuery,
   TelegramUpdate,
 } from '@/lib/telegram';
+import { getPaperTradingManager } from '@/core/paper-trading/manager';
+import { getMarketScanner } from '@/core/paper-trading/scanner';
+import { SupabaseTelegramUserStore } from '@/lib/telegram-user-store';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -237,39 +240,87 @@ class TelegramCommandHandler {
   private async handleStatus(chatId: number): Promise<void> {
     const client = getTelegramClient();
 
-    // TODO: integrare con il motore di paper trading reale
-    await client.sendMessage(
-      chatId,
-      [
+    try {
+      const manager = getPaperTradingManager();
+      const overview = await manager.getStatus();
+
+      const lines: string[] = [
         '\uD83D\uDFE2 <b>Stato Sistema</b>',
         '',
-        '<b>Paper Trading:</b> Attivo',
-        '<b>Strategie caricate:</b> —',
-        '<b>Ultimo scan:</b> —',
-        '<b>Uptime:</b> —',
-        '',
-        '<i>Integrazione completa in arrivo.</i>',
-      ].join('\n')
-    );
+        `<b>Sessioni attive:</b> ${overview.activeSessions}`,
+        `<b>Sessioni in pausa:</b> ${overview.pausedSessions}`,
+        `<b>Posizioni aperte:</b> ${overview.totalOpenPositions}`,
+        `<b>Capitale totale:</b> $${overview.totalCapital.toFixed(2)}`,
+        `<b>P&L totale:</b> ${overview.totalPnl >= 0 ? '+' : ''}$${overview.totalPnl.toFixed(2)}`,
+      ];
+
+      if (overview.sessions.length > 0) {
+        lines.push('');
+        lines.push('<b>Strategie:</b>');
+        for (const s of overview.sessions) {
+          const statusIcon = s.status === 'running' ? '\uD83D\uDFE2' : '\uD83D\uDFE1';
+          const pnlSign = s.metrics.totalPnl >= 0 ? '+' : '';
+          lines.push(
+            `${statusIcon} ${escapeHtml(s.strategyCode)} — ${pnlSign}$${s.metrics.totalPnl.toFixed(2)} (${pnlSign}${s.metrics.totalPnlPct.toFixed(1)}%)`,
+          );
+        }
+      }
+
+      await client.sendMessage(chatId, lines.join('\n'));
+    } catch (error) {
+      await client.sendMessage(
+        chatId,
+        '\u26A0\uFE0F Errore nel recupero dello stato. Nessuna sessione attiva?',
+      );
+    }
   }
 
   private async handlePortfolio(chatId: number): Promise<void> {
     const client = getTelegramClient();
 
-    // TODO: integrare con portfolio manager reale
-    await client.sendMessage(
-      chatId,
-      [
-        '\uD83D\uDCBC <b>Portfolio</b>',
+    try {
+      const manager = getPaperTradingManager();
+      const overview = await manager.getStatus();
+
+      if (overview.sessions.length === 0) {
+        await client.sendMessage(chatId, '\uD83D\uDCBC Nessuna sessione paper trading attiva.');
+        return;
+      }
+
+      const lines: string[] = [
+        '\uD83D\uDCBC <b>Portfolio Paper Trading</b>',
         '',
-        '<b>Capitale:</b> —',
-        '<b>Posizioni aperte:</b> 0',
-        '<b>P&L giornaliero:</b> —',
-        '<b>P&L totale:</b> —',
-        '',
-        '<i>Integrazione completa in arrivo.</i>',
-      ].join('\n')
-    );
+        `<b>Capitale totale:</b> $${overview.totalCapital.toFixed(2)}`,
+        `<b>P&L totale:</b> ${overview.totalPnl >= 0 ? '+' : ''}$${overview.totalPnl.toFixed(2)}`,
+        `<b>Posizioni aperte:</b> ${overview.totalOpenPositions}`,
+      ];
+
+      // Show open positions per session
+      for (const session of overview.sessions) {
+        if (session.openPositions.length === 0) continue;
+
+        lines.push('');
+        lines.push(`<b>\u2014 ${escapeHtml(session.strategyCode)} \u2014</b>`);
+
+        for (const pos of session.openPositions) {
+          const pnlSign = pos.unrealizedPnl >= 0 ? '+' : '';
+          const pnlIcon = pos.unrealizedPnl >= 0 ? '\uD83D\uDFE2' : '\uD83D\uDD34';
+          lines.push(
+            `${pnlIcon} ${escapeHtml(pos.marketName.substring(0, 40))}`,
+          );
+          lines.push(
+            `   Entry: ${pos.entryPrice.toFixed(4)} | Now: ${pos.currentPrice.toFixed(4)} | ${pnlSign}$${pos.unrealizedPnl.toFixed(2)}`,
+          );
+        }
+      }
+
+      await client.sendMessage(chatId, lines.join('\n'));
+    } catch (error) {
+      await client.sendMessage(
+        chatId,
+        '\u26A0\uFE0F Errore nel recupero del portfolio.',
+      );
+    }
   }
 
   private async handleScan(chatId: number): Promise<void> {
@@ -277,21 +328,46 @@ class TelegramCommandHandler {
 
     await client.sendMessage(
       chatId,
-      '\uD83D\uDD0D <b>Scansione mercati in corso...</b>\n\n<i>Riceverai i risultati a breve.</i>'
+      '\uD83D\uDD0D <b>Scansione mercati in corso...</b>',
     );
 
-    // TODO: lanciare scan reale e inviare risultati
-    // Per ora placeholder
-    await client.sendMessage(
-      chatId,
-      [
-        '\uD83D\uDD0D <b>Risultati Scan</b>',
+    try {
+      const scanner = getMarketScanner();
+      const result = await scanner.scan();
+
+      if (result.opportunities.length === 0) {
+        await client.sendMessage(
+          chatId,
+          `\uD83D\uDD0D <b>Scan completato</b>\n\n${result.marketsScanned} mercati analizzati, nessuna opportunit\u00E0 trovata.`,
+        );
+        return;
+      }
+
+      const lines: string[] = [
+        `\uD83D\uDD0D <b>Scan completato</b> \u2014 ${result.opportunities.length} opportunit\u00E0`,
+        `<i>${result.marketsScanned} mercati | ${result.scanDurationMs}ms</i>`,
         '',
-        'Nessuna opportunita trovata al momento.',
-        '',
-        '<i>Integrazione con engine di scan in arrivo.</i>',
-      ].join('\n')
-    );
+      ];
+
+      const top = result.opportunities.slice(0, 5);
+      for (const opp of top) {
+        lines.push(`<b>${escapeHtml(opp.marketName.substring(0, 50))}</b>`);
+        lines.push(`  ${escapeHtml(opp.strategyCode)} | Score: ${opp.score} | $${opp.suggestedStake.toFixed(2)}`);
+        lines.push('');
+      }
+
+      if (result.opportunities.length > 5) {
+        lines.push(`<i>...e altre ${result.opportunities.length - 5}</i>`);
+      }
+
+      await client.sendMessage(chatId, lines.join('\n'));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : 'Errore sconosciuto';
+      await client.sendMessage(
+        chatId,
+        `\u26A0\uFE0F <b>Scan fallito</b>\n\n<code>${escapeHtml(msg)}</code>`,
+      );
+    }
   }
 
   private async handleHelp(chatId: number): Promise<void> {
@@ -347,9 +423,13 @@ export function getTelegramCommandHandler(
   userStore?: TelegramUserStore
 ): TelegramCommandHandler {
   if (!handlerInstance) {
-    handlerInstance = new TelegramCommandHandler(userStore);
+    handlerInstance = new TelegramCommandHandler(userStore ?? new SupabaseTelegramUserStore());
   }
   return handlerInstance;
 }
 
 export { TelegramCommandHandler };
+
+function escapeHtml(text: string): string {
+  return text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
