@@ -5,7 +5,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { AIRequest, AIResponse, AIUsage } from '@/core/types/ai';
 
-const CLAUDE_MODEL = 'claude-sonnet-4-20250514';
+const CLAUDE_MODEL = 'claude-sonnet-4-6-20250627';
 
 export class ClaudeProvider {
   private client: Anthropic;
