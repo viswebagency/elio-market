@@ -52,7 +52,9 @@ export interface KBStats {
   cacheHits: number;
   cacheMisses: number;
   hitRate: number;
+  totalCostUsd: number;
   estimatedSavingsUsd: number;
+  totalTokensUsed: number;
   analysesByType: Record<string, number>;
   analysesByCacheLevel: Record<string, number>;
 }
@@ -255,6 +257,20 @@ export class KnowledgeBaseManager {
       .select('*', { count: 'exact', head: true })
       .eq('cache_hit', false);
 
+    // Total cost and tokens
+    const { data: costData } = await db
+      .from('kb_analyses')
+      .select('estimated_cost_usd, tokens_used');
+
+    const totalCostUsd = (costData ?? []).reduce(
+      (sum: number, row: { estimated_cost_usd: number }) => sum + (row.estimated_cost_usd ?? 0),
+      0,
+    );
+    const totalTokensUsed = (costData ?? []).reduce(
+      (sum: number, row: { tokens_used: number }) => sum + (row.tokens_used ?? 0),
+      0,
+    );
+
     // Estimated savings
     const { data: savingsData } = await db
       .from('kb_analysis_requests')
@@ -297,7 +313,9 @@ export class KnowledgeBaseManager {
       cacheHits: hits,
       cacheMisses: cacheMisses ?? 0,
       hitRate: total > 0 ? hits / total : 0,
+      totalCostUsd,
       estimatedSavingsUsd,
+      totalTokensUsed,
       analysesByType,
       analysesByCacheLevel,
     };

@@ -70,13 +70,29 @@ export default function DashboardPage() {
   const [data, setData] = useState<Overview | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
+  const [aiStats, setAiStats] = useState<{
+    totalCostUsd: number;
+    totalTokensUsed: number;
+    totalAnalyses: number;
+    totalRequests: number;
+    cacheHits: number;
+    hitRate: number;
+    estimatedSavingsUsd: number;
+  } | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const res = await fetch('/api/paper-trading/status');
-      const json = await res.json();
+      const [statusRes, kbRes] = await Promise.all([
+        fetch('/api/paper-trading/status'),
+        fetch('/api/kb/stats'),
+      ]);
+      const json = await statusRes.json();
       if (json.ok !== false) {
         setData(json);
+      }
+      const kbJson = await kbRes.json();
+      if (kbJson.ok && kbJson.stats) {
+        setAiStats(kbJson.stats);
       }
       setLastRefresh(new Date());
     } catch {
@@ -163,6 +179,40 @@ export default function DashboardPage() {
           value={String(data?.totalOpenPositions ?? 0)}
         />
       </div>
+
+      {/* AI Usage */}
+      {aiStats && (
+        <div className="rounded-xl border border-violet-800/30 bg-violet-950/20 px-5 py-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <p className="text-xs text-violet-400 uppercase tracking-wider font-medium">AI Usage</p>
+              <span className="text-xs text-gray-500">Claude Sonnet 4.6</span>
+            </div>
+            <div className="flex items-center gap-6 text-xs font-mono">
+              <div className="text-center">
+                <span className="text-gray-500 block">Speso</span>
+                <span className="text-violet-300">${aiStats.totalCostUsd.toFixed(4)}</span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Token</span>
+                <span className="text-gray-300">{aiStats.totalTokensUsed.toLocaleString()}</span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Analisi</span>
+                <span className="text-gray-300">{aiStats.totalAnalyses}</span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Cache hit</span>
+                <span className="text-emerald-400">{(aiStats.hitRate * 100).toFixed(0)}%</span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Risparmiato</span>
+                <span className="text-emerald-400">${aiStats.estimatedSavingsUsd.toFixed(4)}</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Top / Worst strategy */}
       {topStrategy && worstStrategy && (
