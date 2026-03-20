@@ -7,7 +7,7 @@ import type { NextRequest } from 'next/server';
 import { createServerClient } from '@supabase/ssr';
 
 /** Routes that don't require authentication */
-const PUBLIC_ROUTES = ['/login', '/register', '/api/auth'];
+const PUBLIC_ROUTES = ['/login', '/register', '/onboarding', '/api/auth'];
 
 export async function middleware(request: NextRequest) {
   const { pathname } = request.nextUrl;
@@ -52,7 +52,12 @@ export async function middleware(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser();
 
-  // Redirect to login if not authenticated
+  // Se l'utente e' autenticato e tenta di accedere a login/register, redirect a dashboard
+  if (user && (pathname === '/login' || pathname === '/register')) {
+    return NextResponse.redirect(new URL('/dashboard', request.url));
+  }
+
+  // Redirect to login if not authenticated (escluse le API)
   if (!user && !pathname.startsWith('/api')) {
     const loginUrl = new URL('/login', request.url);
     loginUrl.searchParams.set('redirect', pathname);

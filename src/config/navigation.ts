@@ -22,6 +22,7 @@ export const mainNavigation: NavItem[] = [
 ];
 
 export const secondaryNavigation: NavItem[] = [
+  { label: 'Backtest', href: '/backtest' },
   { label: 'Journal', href: '/journal' },
   { label: 'Impostazioni', href: '/settings' },
 ];

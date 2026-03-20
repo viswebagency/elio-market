@@ -103,7 +103,7 @@ interface RawCircuitBreaker {
   description: string;
 }
 
-interface RawStrategyRow {
+export interface RawStrategyRow {
   id: string;
   code: string;
   name: string;

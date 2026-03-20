@@ -12,6 +12,7 @@ import { NormalizedPrice, NormalizedCandle, NormalizedMarket } from '@/core/type
 import { Trade, TradeExecution } from '@/core/types/trade';
 import { BetfairAdapter } from './adapter';
 import { normalizeBetfairMarket as _normalizeBetfairMarket, normalizeBetfairPrice } from './normalizer';
+import type { BetfairRunner } from '@/types/betfair';
 
 export class BetfairPlugin implements MarketPlugin {
   readonly id = 'betfair';
@@ -31,17 +32,11 @@ export class BetfairPlugin implements MarketPlugin {
 
   private adapter: BetfairAdapter | null = null;
 
-  async initialize(config: PluginConnectionConfig): Promise<void> {
+  async initialize(_config: PluginConnectionConfig): Promise<void> {
     this.status = 'initializing';
     try {
-      if (!config.apiKey) throw new Error('Betfair app key required');
-      this.adapter = new BetfairAdapter(config.apiKey);
-      if (config.extra?.username && config.extra?.password) {
-        await this.adapter.login(
-          config.extra.username as string,
-          config.extra.password as string
-        );
-      }
+      // Il nuovo adapter gestisce autenticazione internamente via BetfairClient
+      this.adapter = new BetfairAdapter();
       this.status = 'ready';
     } catch (error) {
       this.status = 'error';
@@ -57,7 +52,7 @@ export class BetfairPlugin implements MarketPlugin {
   async healthCheck(): Promise<boolean> {
     if (!this.adapter) return false;
     try {
-      await this.adapter.listEvents('1'); // Soccer
+      await this.adapter.listEvents({ sportId: '1' }); // Soccer
       return true;
     } catch {
       return false;
@@ -67,8 +62,10 @@ export class BetfairPlugin implements MarketPlugin {
   async getPrice(symbol: string): Promise<NormalizedPrice> {
     this.ensureReady();
     const [, marketId, selectionId] = symbol.split(':');
-    const book = await this.adapter!.getMarketBook(marketId);
-    const runner = book.runners.find((r) => String(r.selectionId) === selectionId);
+    const books = await this.adapter!.listMarketBook([marketId]);
+    const book = books[0];
+    if (!book) throw new Error(`Market ${marketId} not found`);
+    const runner = book.runners.find((r: BetfairRunner) => String(r.selectionId) === selectionId);
     if (!runner) throw new Error(`Runner ${selectionId} not found in market ${marketId}`);
     return normalizeBetfairPrice(book, runner);
   }
