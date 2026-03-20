@@ -50,7 +50,8 @@ export async function GET() {
       .in('action', ['full_close', 'partial_close']);
 
     // Build maps
-    const sessionMap = new Map<string, typeof sessions extends (infer T)[] ? T : never>();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sessionMap = new Map<string, any>();
     for (const s of sessions ?? []) {
       sessionMap.set(s.strategy_id, s);
     }
