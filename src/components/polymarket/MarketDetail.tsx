@@ -2,6 +2,24 @@
 
 import { useEffect, useState, useCallback } from 'react';
 
+// ---- KB Analysis Types ----
+interface KBAnalysisData {
+  id: string;
+  content: string;
+  confidence: number;
+  dataPointsUsed: { label: string; value: string; source: string }[];
+  structuredData: {
+    sentiment?: string;
+    keyFactors?: string[];
+    risks?: string[];
+    opportunities?: string[];
+  };
+  cacheLevel: 'fresh' | 'l1_exact' | 'l2_delta' | 'l3_template';
+  version: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
 interface OrderBookLevel {
   price: string;
   size: string;
@@ -239,6 +257,10 @@ export default function MarketDetail({ marketId, onClose }: MarketDetailProps) {
   const [priceHistory, setPriceHistory] = useState<PricePoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [analysis, setAnalysis] = useState<KBAnalysisData | null>(null);
+  const [analysisLoading, setAnalysisLoading] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
+  const [analysisType, setAnalysisType] = useState<string>('market_overview');
 
   const fetchDetail = useCallback(async () => {
     setLoading(true);
@@ -256,9 +278,30 @@ export default function MarketDetail({ marketId, onClose }: MarketDetailProps) {
     }
   }, [marketId]);
 
+  const fetchAnalysis = useCallback(async (type: string) => {
+    setAnalysisLoading(true);
+    setAnalysisError(null);
+    try {
+      const res = await fetch(`/api/kb/analysis?marketId=${marketId}&type=${type}`);
+      const data = await res.json();
+      if (!data.ok) throw new Error(data.error || 'Errore analisi AI');
+      setAnalysis(data.analysis);
+    } catch (err) {
+      setAnalysisError(err instanceof Error ? err.message : 'Errore sconosciuto');
+    } finally {
+      setAnalysisLoading(false);
+    }
+  }, [marketId]);
+
   useEffect(() => {
     fetchDetail();
   }, [fetchDetail]);
+
+  useEffect(() => {
+    if (!loading && market) {
+      fetchAnalysis(analysisType);
+    }
+  }, [loading, market, analysisType, fetchAnalysis]);
 
   if (loading) {
     return (
@@ -414,23 +457,122 @@ export default function MarketDetail({ marketId, onClose }: MarketDetailProps) {
             </div>
           )}
 
-          {/* Analisi AI placeholder */}
+          {/* Analisi AI */}
           <div>
-            <h3 className="text-sm font-semibold text-gray-300 mb-3 uppercase tracking-wider">
-              Analisi AI
-            </h3>
-            <div className="bg-prediction-900/20 border border-prediction-700/30 rounded-xl p-4 flex items-center gap-3">
-              <div className="w-8 h-8 rounded-lg bg-prediction-700/30 flex items-center justify-center shrink-0">
-                <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
-                  <path d="M8 1v14M1 8h14" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" />
-                </svg>
-              </div>
-              <div>
-                <p className="text-sm text-prediction-300 font-medium">Analisi in arrivo...</p>
-                <p className="text-xs text-prediction-400/60 mt-0.5">
-                  Il motore AI analizzerà questo mercato con indicatori avanzati
-                </p>
-              </div>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-gray-300 uppercase tracking-wider">
+                Analisi AI
+              </h3>
+              {analysis && (
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-full uppercase tracking-wider ${
+                    analysis.cacheLevel === 'fresh'
+                      ? 'bg-green-900/30 text-green-400 border border-green-700/30'
+                      : 'bg-prediction-900/30 text-prediction-400 border border-prediction-700/30'
+                  }`}
+                >
+                  {analysis.cacheLevel === 'fresh' ? 'fresh' : 'cached'}
+                </span>
+              )}
+            </div>
+
+            {/* Analysis type selector */}
+            <div className="flex gap-1.5 mb-3 overflow-x-auto">
+              {[
+                { key: 'market_overview', label: 'Panoramica' },
+                { key: 'entry_analysis', label: 'Ingresso' },
+                { key: 'exit_analysis', label: 'Uscita' },
+                { key: 'risk_assessment', label: 'Rischio' },
+              ].map((tab) => (
+                <button
+                  key={tab.key}
+                  onClick={() => setAnalysisType(tab.key)}
+                  className={`text-xs px-3 py-1.5 rounded-lg font-medium transition-colors whitespace-nowrap ${
+                    analysisType === tab.key
+                      ? 'bg-prediction-600 text-white'
+                      : 'bg-gray-800 text-gray-400 hover:bg-gray-700 hover:text-gray-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+
+            <div className="bg-prediction-900/20 border border-prediction-700/30 rounded-xl p-4">
+              {analysisLoading ? (
+                <div className="flex items-center gap-3 text-gray-400">
+                  <div className="w-5 h-5 border-2 border-prediction-500 border-t-transparent rounded-full animate-spin" />
+                  <span className="text-sm">Generazione analisi...</span>
+                </div>
+              ) : analysisError ? (
+                <div className="text-sm text-red-400">{analysisError}</div>
+              ) : analysis ? (
+                <div className="space-y-3">
+                  {/* Confidence bar */}
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">Confidence</span>
+                    <div className="flex-1 bg-gray-800 rounded-full h-1.5">
+                      <div
+                        className={`h-1.5 rounded-full ${
+                          analysis.confidence >= 70
+                            ? 'bg-green-500'
+                            : analysis.confidence >= 50
+                              ? 'bg-yellow-500'
+                              : 'bg-red-500'
+                        }`}
+                        style={{ width: `${analysis.confidence}%` }}
+                      />
+                    </div>
+                    <span className="text-xs font-mono text-gray-400">{analysis.confidence}%</span>
+                  </div>
+
+                  {/* Analysis content */}
+                  <div className="text-sm text-gray-300 leading-relaxed whitespace-pre-line">
+                    {analysis.content
+                      .replace(/\*\*(.*?)\*\*/g, '$1')
+                      .replace(/\|.*\|/g, '')
+                      .replace(/\|-+\|/g, '')}
+                  </div>
+
+                  {/* Data points */}
+                  {analysis.dataPointsUsed.length > 0 && (
+                    <div className="pt-2 border-t border-prediction-700/20">
+                      <p className="text-[10px] text-gray-500 uppercase tracking-wider mb-1.5">
+                        Dati utilizzati
+                      </p>
+                      <div className="flex flex-wrap gap-1.5">
+                        {analysis.dataPointsUsed.map((dp, i) => (
+                          <span
+                            key={i}
+                            className="text-[10px] font-mono px-2 py-0.5 rounded bg-gray-800/80 text-gray-400 border border-gray-700/50"
+                          >
+                            {dp.label}: {dp.value}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Timestamp */}
+                  <p className="text-[10px] text-gray-600 font-mono">
+                    v{analysis.version} — aggiornata {formatDate(analysis.createdAt)}
+                  </p>
+                </div>
+              ) : (
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-lg bg-prediction-700/30 flex items-center justify-center shrink-0">
+                    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+                      <path d="M8 1v14M1 8h14" stroke="#8B5CF6" strokeWidth="2" strokeLinecap="round" />
+                    </svg>
+                  </div>
+                  <div>
+                    <p className="text-sm text-prediction-300 font-medium">Analisi non disponibile</p>
+                    <p className="text-xs text-prediction-400/60 mt-0.5">
+                      Riprova tra qualche momento
+                    </p>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 

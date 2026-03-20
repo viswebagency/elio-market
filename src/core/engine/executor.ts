@@ -3,6 +3,7 @@ import { ParsedStrategy } from './dsl-parser';
 import { MarketSnapshot, evaluateEntry, evaluateExit, EvaluationResult } from './evaluator';
 import { VirtualPortfolio, PortfolioSnapshot, CircuitBreakerLimits } from './portfolio';
 import { Signal, SignalBatch, SignalType, TierLevel, createSignal, createSkipSignal } from './signals';
+import { MarketAdapter, NormalizedMarket, normalizedToSnapshot } from './market-adapter';
 
 export type StrategyMode = 'observation' | 'paper' | 'live';
 
@@ -12,6 +13,8 @@ export interface ExecutorConfig {
   minConfidenceToEnter: number;
   maxOpenPositions: number;
   slippagePct: number;
+  /** Area di mercato — sovrascrive il default PREDICTION */
+  area?: MarketArea;
 }
 
 export interface ExecutionLog {
@@ -34,10 +37,14 @@ export class StrategyExecutor {
   private config: ExecutorConfig;
   private portfolio: VirtualPortfolio;
   private logs: ExecutionLog[] = [];
+  private adapter: MarketAdapter | null = null;
+  private resolvedArea: MarketArea;
 
-  constructor(strategy: ParsedStrategy, config?: Partial<ExecutorConfig>) {
+  constructor(strategy: ParsedStrategy, config?: Partial<ExecutorConfig>, adapter?: MarketAdapter) {
     this.strategy = strategy;
     this.config = { ...DEFAULT_CONFIG, ...config };
+    this.adapter = adapter ?? null;
+    this.resolvedArea = adapter?.area ?? config?.area ?? MarketArea.PREDICTION;
 
     const tierAllocations = strategy.bankrollTiers.map(t => ({
       tier: t.tier,
@@ -101,7 +108,7 @@ export class StrategyExecutor {
           market.name,
           this.strategy.strategyId,
           this.strategy.code,
-          market.status === 'open' ? MarketArea.PREDICTION : MarketArea.PREDICTION,
+          this.resolvedArea,
           evaluation.summary,
           market.price,
         );
@@ -132,7 +139,7 @@ export class StrategyExecutor {
       marketName: market.name,
       strategyId: this.strategy.strategyId,
       strategyCode: this.strategy.code,
-      area: MarketArea.PREDICTION,
+      area: this.resolvedArea,
       type: SignalType.ENTER_LONG,
       confidence: evaluation.totalScore,
       reason: evaluation.summary,
@@ -163,7 +170,7 @@ export class StrategyExecutor {
         marketName: market.name,
         strategyId: this.strategy.strategyId,
         strategyCode: this.strategy.code,
-        area: MarketArea.PREDICTION,
+        area: this.resolvedArea,
         type: SignalType.HOLD,
         confidence: 50,
         reason: `Posizione aperta, P&L: ${currentProfitPct.toFixed(1)}%, nessun exit trigger`,
@@ -184,7 +191,7 @@ export class StrategyExecutor {
         marketName: market.name,
         strategyId: this.strategy.strategyId,
         strategyCode: this.strategy.code,
-        area: MarketArea.PREDICTION,
+        area: this.resolvedArea,
         type: signalType,
         confidence: 100,
         reason: exit.reason,
@@ -258,6 +265,43 @@ export class StrategyExecutor {
     const maxPctStake = snapshot.totalBankroll * (this.strategy.maxAllocationPct / 100);
 
     return Math.min(maxStake, maxPctStake);
+  }
+
+  /**
+   * Valuta mercati normalizzati da qualsiasi MarketAdapter.
+   * Converte NormalizedMarket[] -> MarketSnapshot[] e delega a evaluateMarkets.
+   */
+  evaluateNormalizedMarkets(markets: NormalizedMarket[]): SignalBatch {
+    const snapshots: MarketSnapshot[] = markets.map(m => normalizedToSnapshot(m));
+    return this.evaluateMarkets(snapshots);
+  }
+
+  /**
+   * Fetch e valuta mercati tramite l'adapter configurato.
+   * Richiede che il costruttore sia stato chiamato con un MarketAdapter.
+   */
+  async fetchAndEvaluate(filters?: { limit?: number; category?: string }): Promise<SignalBatch> {
+    if (!this.adapter) {
+      throw new Error('Nessun MarketAdapter configurato. Passa un adapter al costruttore.');
+    }
+
+    const markets = await this.adapter.fetchMarkets({
+      limit: filters?.limit ?? 50,
+      category: filters?.category,
+      active: true,
+    });
+
+    return this.evaluateNormalizedMarkets(markets);
+  }
+
+  /** Restituisce l'area di mercato risolta */
+  getArea(): MarketArea {
+    return this.resolvedArea;
+  }
+
+  /** Restituisce l'adapter configurato (null se non presente) */
+  getAdapter(): MarketAdapter | null {
+    return this.adapter;
   }
 
   getPortfolioSnapshot(): PortfolioSnapshot {

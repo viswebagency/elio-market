@@ -42,9 +42,9 @@ export function TableHead({ children, className = '' }: { children: ReactNode; c
   );
 }
 
-export function TableCell({ children, className = '' }: { children: ReactNode; className?: string }) {
+export function TableCell({ children, className = '', colSpan }: { children: ReactNode; className?: string; colSpan?: number }) {
   return (
-    <td className={`px-4 py-3 ${className}`}>
+    <td className={`px-4 py-3 ${className}`} colSpan={colSpan}>
       {children}
     </td>
   );
