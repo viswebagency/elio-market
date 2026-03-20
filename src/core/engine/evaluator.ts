@@ -20,6 +20,8 @@ export interface MarketSnapshot {
   catalystDescription: string | null;
   category: string;
   status: 'open' | 'closed' | 'suspended' | 'settled' | 'expired';
+  /** Reference date for expiry calculation (backtest mode). Defaults to now. */
+  referenceDate?: Date;
 }
 
 export interface ConditionResult {
@@ -83,7 +85,7 @@ function evaluateMinVolume(params: MinVolumeParams, totalVolumeUsd: number): Con
   };
 }
 
-function evaluateMaxExpiry(params: MaxExpiryParams, expiryDate: string | null): ConditionResult {
+function evaluateMaxExpiry(params: MaxExpiryParams, expiryDate: string | null, referenceDate?: Date): ConditionResult {
   if (!expiryDate) {
     return {
       ruleId: 'expiry_window',
@@ -93,7 +95,7 @@ function evaluateMaxExpiry(params: MaxExpiryParams, expiryDate: string | null): 
     };
   }
 
-  const now = new Date();
+  const now = referenceDate ?? new Date();
   const expiry = new Date(expiryDate);
   const daysToExpiry = Math.ceil((expiry.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
@@ -142,7 +144,7 @@ function evaluateEntryCondition(params: EntryRuleParams, market: MarketSnapshot)
     case 'min_volume':
       return evaluateMinVolume(params, market.totalVolumeUsd);
     case 'max_expiry':
-      return evaluateMaxExpiry(params, market.expiryDate);
+      return evaluateMaxExpiry(params, market.expiryDate, market.referenceDate);
     case 'catalyst':
       return evaluateCatalyst(params, market.hasCatalyst, market.catalystDescription);
   }

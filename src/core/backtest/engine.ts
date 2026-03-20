@@ -227,6 +227,7 @@ export class BacktestEngine {
       catalystDescription: null,
       category: tick.category,
       status: tick.status,
+      referenceDate: new Date(tick.timestamp), // Backtest: use tick time, not real time
     };
 
     const evaluation = evaluateEntry(this.strategy, snapshot);

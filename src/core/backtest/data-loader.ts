@@ -8,6 +8,7 @@
 
 import { getPolymarketClient, ParsedMarket } from '@/lib/polymarket-client';
 import { HistoricalMarketData, HistoricalTick } from './engine';
+import { generateSyntheticMarkets } from './synthetic-data';
 
 // ---------------------------------------------------------------------------
 // Cache in memoria per evitare ri-fetch
@@ -34,6 +35,12 @@ export interface DataLoaderConfig {
   category?: string;
   /** Volume minimo richiesto */
   minVolume?: number;
+  /** Skip CLOB price history fetch — use interpolation only (much faster) */
+  fastMode?: boolean;
+  /** Use synthetic data instead of real Polymarket data (for L1 when real data is insufficient) */
+  synthetic?: boolean;
+  /** Random seed for synthetic data (for reproducibility) */
+  syntheticSeed?: number;
 }
 
 const DEFAULT_LOADER_CONFIG: DataLoaderConfig = {
@@ -50,10 +57,23 @@ export async function loadHistoricalData(
 ): Promise<HistoricalMarketData[]> {
   const cfg: DataLoaderConfig = { ...DEFAULT_LOADER_CONFIG, ...config };
 
-  const cacheKey = `${cfg.maxMarkets}:${cfg.ticksPerMarket}:${cfg.category ?? ''}:${cfg.minVolume ?? 0}`;
+  const mode = cfg.synthetic ? ':synth' : cfg.fastMode ? ':fast' : '';
+  const cacheKey = `${cfg.maxMarkets}:${cfg.ticksPerMarket}:${cfg.category ?? ''}:${cfg.minVolume ?? 0}${mode}`;
   const cached = dataCache.get(cacheKey);
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL_MS) {
     return cached.data;
+  }
+
+  // Synthetic mode: generate realistic data for L1 backtesting
+  if (cfg.synthetic) {
+    const syntheticData = generateSyntheticMarkets({
+      numMarkets: cfg.maxMarkets,
+      ticksPerMarket: cfg.ticksPerMarket,
+      seed: cfg.syntheticSeed ?? 42,
+      minVolume: cfg.minVolume,
+    });
+    dataCache.set(cacheKey, { data: syntheticData, fetchedAt: Date.now() });
+    return syntheticData;
   }
 
   const client = getPolymarketClient();
@@ -72,7 +92,9 @@ export async function loadHistoricalData(
   const historicalData: HistoricalMarketData[] = [];
 
   for (const market of closedMarkets) {
-    const data = await buildMarketTimeline(client, market, cfg.ticksPerMarket);
+    const data = cfg.fastMode
+      ? buildMarketTimelineFast(market, cfg.ticksPerMarket)
+      : await buildMarketTimeline(client, market, cfg.ticksPerMarket);
     if (data) {
       historicalData.push(data);
     }
@@ -84,6 +106,36 @@ export async function loadHistoricalData(
   });
 
   return historicalData;
+}
+
+/**
+ * Fast version: interpolation only, no CLOB API calls.
+ * Good enough for L1 Quick Scan where speed matters more than precision.
+ */
+function buildMarketTimelineFast(
+  market: ParsedMarket,
+  tickCount: number,
+): HistoricalMarketData | null {
+  const startDate = market.startDate ?? market.endDate;
+  const endDate = market.endDate;
+  if (!endDate) return null;
+
+  const startMs = new Date(startDate).getTime();
+  const endMs = new Date(endDate).getTime();
+  if (isNaN(startMs) || isNaN(endMs) || endMs <= startMs) return null;
+
+  const resolvedOutcome = determineOutcome(market);
+  const ticks = interpolateTicks(market, startMs, endMs, tickCount, resolvedOutcome);
+
+  return {
+    marketId: market.id,
+    marketName: market.question,
+    category: market.category,
+    startDate,
+    endDate,
+    resolvedOutcome,
+    ticks,
+  };
 }
 
 /**
