@@ -716,7 +716,13 @@ class BetfairClient {
     if (cached) return cached;
 
     if (this.useMock) {
-      const events = generateMockEvents(params.competitionId ?? params.sportId ?? '81');
+      let events: BetfairEvent[];
+      if (params.competitionId) {
+        events = generateMockEvents(params.competitionId);
+      } else {
+        // When only sportId is given, return all events from all competitions of that sport
+        events = getAllMockEvents();
+      }
       this.cache.set(cacheKey, events, CACHE_TTL_CATALOGUE);
       return events;
     }
