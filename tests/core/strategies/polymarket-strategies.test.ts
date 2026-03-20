@@ -9,17 +9,17 @@ import { POLYMARKET_STRATEGIES } from '@/core/strategies/polymarket-strategies';
 import { parseStrategy, validateParsedStrategy, RawStrategyRow } from '@/core/engine/dsl-parser';
 
 describe('Polymarket Strategies Seed', () => {
-  it('should have 13 strategies total', () => {
-    expect(POLYMARKET_STRATEGIES).toHaveLength(13);
+  it('should have 19 strategies total (13 original + 6 v2)', () => {
+    expect(POLYMARKET_STRATEGIES).toHaveLength(19);
   });
 
-  it('should have 5 conservative, 5 moderate, 3 aggressive', () => {
+  it('should have 7 conservative, 9 moderate, 3 aggressive (including v2)', () => {
     const conservative = POLYMARKET_STRATEGIES.filter((s) => s.risk_level === 'conservative');
     const moderate = POLYMARKET_STRATEGIES.filter((s) => s.risk_level === 'moderate');
     const aggressive = POLYMARKET_STRATEGIES.filter((s) => s.risk_level === 'aggressive');
 
-    expect(conservative).toHaveLength(5);
-    expect(moderate).toHaveLength(5);
+    expect(conservative).toHaveLength(7);
+    expect(moderate).toHaveLength(9);
     expect(aggressive).toHaveLength(3);
   });
 

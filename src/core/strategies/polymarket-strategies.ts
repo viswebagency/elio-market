@@ -1,7 +1,7 @@
 /**
  * Polymarket Strategies — Seed Data
  *
- * 13 strategies for Polymarket prediction markets:
+ * 19 strategies for Polymarket prediction markets:
  * - 5 conservative (low risk, high probability)
  * - 5 moderate (balanced risk/reward)
  * - 3 aggressive (high reward, high volatility)
@@ -339,6 +339,190 @@ const PM_M05: StrategySeed = {
 };
 
 // ============================================================================
+// V2 — Fixed strategies (failed L1, now corrected)
+// ============================================================================
+
+const PM_C04b: StrategySeed = {
+  code: 'PM-C04b',
+  name: 'Blue Chip Only v2',
+  description: 'Solo mercati blue chip con volume abbassato a $80k e range favoriti 0.70-0.95 vicino a scadenza per convergenza.',
+  area: 'polymarket',
+  risk_level: 'conservative',
+  rules: {
+    entry_rules: [
+      { id: 'mid_price', condition: 'price_range', description: 'Quote favoriti 0.70-0.95', params: { min_price: 0.70, max_price: 0.95 } },
+      { id: 'mega_volume', condition: 'min_volume', description: 'Volume 24h minimo $80k', params: { min_volume_usd: 80000 } },
+      { id: 'near_expiry', condition: 'max_expiry', description: 'Scadenza entro 14 giorni', params: { max_days_to_expiry: 14 } },
+    ],
+    exit_rules: [
+      { id: 'tp', condition: 'take_profit', description: 'Prendi profitto al 6%', params: { profit_pct: 6, sell_fraction: 1.0 } },
+      { id: 'sl', condition: 'stop_loss', description: 'Stop loss al -3%', params: { loss_pct: -3, sell_fraction: 1.0 } },
+    ],
+    bankroll_tiers: { tier1: { allocation_pct: 60, description: 'Core' }, tier2: { allocation_pct: 30, description: 'Secondarie' }, tier3: { allocation_pct: 10, description: 'Esplorative' } },
+    liquidity_reserve_pct: 20,
+    circuit_breaker_total: { loss_pct: -10, action: 'Pausa strategia', description: 'Stop se drawdown > 10%' },
+  },
+  rules_readable: 'QUANDO: prezzo 0.70-0.95\nE: volume24h > $80k\nE: scadenza < 14gg\nALLORA: ENTRA long\nESCI_SE: profitto > 6% OPPURE perdita > 3%',
+  max_drawdown: 10,
+  max_allocation_pct: 8,
+  max_consecutive_losses: 5,
+  sizing_method: 'fixed_percentage',
+  sizing_value: 3,
+  min_ev: 5,
+  min_probability: 60,
+};
+
+const PM_C05b: StrategySeed = {
+  code: 'PM-C05b',
+  name: 'Scalp Express v2',
+  description: 'Scalp su favoriti con TP 5% e range alto 0.70-0.95 vicino a scadenza per superare slippage.',
+  area: 'polymarket',
+  risk_level: 'conservative',
+  rules: {
+    entry_rules: [
+      { id: 'stable_price', condition: 'price_range', description: 'Quote favoriti 0.70-0.95', params: { min_price: 0.70, max_price: 0.95 } },
+      { id: 'volume', condition: 'min_volume', description: 'Volume 24h minimo $40k', params: { min_volume_usd: 40000 } },
+      { id: 'mid_expiry', condition: 'max_expiry', description: 'Scadenza entro 14 giorni', params: { max_days_to_expiry: 14 } },
+    ],
+    exit_rules: [
+      { id: 'tp', condition: 'take_profit', description: 'Prendi profitto al 5%', params: { profit_pct: 5, sell_fraction: 1.0 } },
+      { id: 'sl', condition: 'stop_loss', description: 'Stop loss al -3%', params: { loss_pct: -3, sell_fraction: 1.0 } },
+    ],
+    bankroll_tiers: { tier1: { allocation_pct: 50, description: 'Core' }, tier2: { allocation_pct: 35, description: 'Secondarie' }, tier3: { allocation_pct: 15, description: 'Esplorative' } },
+    liquidity_reserve_pct: 20,
+    circuit_breaker_total: { loss_pct: -10, action: 'Pausa strategia', description: 'Stop se drawdown > 10%' },
+  },
+  rules_readable: 'QUANDO: prezzo 0.70-0.95\nE: volume24h > $40k\nE: scadenza < 14gg\nALLORA: ENTRA long\nESCI_SE: profitto > 5% OPPURE perdita > 3%',
+  max_drawdown: 10,
+  max_allocation_pct: 6,
+  max_consecutive_losses: 6,
+  sizing_method: 'fixed_percentage',
+  sizing_value: 2,
+  min_ev: 5,
+  min_probability: 60,
+};
+
+const PM_M01b: StrategySeed = {
+  code: 'PM-M01b',
+  name: 'Compra la Paura v2',
+  description: 'Swing su favoriti temporaneamente in calo (0.60-0.85). SL -6%, sizing 3%, scadenza breve per convergenza.',
+  area: 'polymarket',
+  risk_level: 'moderate',
+  rules: {
+    entry_rules: [
+      { id: 'undervalued', condition: 'price_range', description: 'Quote favoriti in calo 0.60-0.85', params: { min_price: 0.60, max_price: 0.85 } },
+      { id: 'volume', condition: 'min_volume', description: 'Volume 24h minimo $40k', params: { min_volume_usd: 40000 } },
+      { id: 'time', condition: 'max_expiry', description: 'Scadenza entro 14 giorni', params: { max_days_to_expiry: 14 } },
+    ],
+    exit_rules: [
+      { id: 'tp', condition: 'take_profit', description: 'Prendi profitto al 8%', params: { profit_pct: 8, sell_fraction: 1.0 } },
+      { id: 'sl', condition: 'stop_loss', description: 'Stop loss al -6%', params: { loss_pct: -6, sell_fraction: 1.0 } },
+    ],
+    bankroll_tiers: { tier1: { allocation_pct: 40, description: 'Core' }, tier2: { allocation_pct: 40, description: 'Secondarie' }, tier3: { allocation_pct: 20, description: 'Esplorative' } },
+    liquidity_reserve_pct: 25,
+    circuit_breaker_total: { loss_pct: -15, action: 'Pausa strategia', description: 'Stop se drawdown > 15%' },
+  },
+  rules_readable: 'QUANDO: prezzo 0.60-0.85\nE: volume24h > $40k\nE: scadenza < 14gg\nALLORA: ENTRA long\nESCI_SE: profitto > 8% OPPURE perdita > 6%',
+  max_drawdown: 15,
+  max_allocation_pct: 8,
+  max_consecutive_losses: 6,
+  sizing_method: 'fixed_percentage',
+  sizing_value: 3,
+  min_ev: 3,
+  min_probability: 55,
+};
+
+const PM_M02b: StrategySeed = {
+  code: 'PM-M02b',
+  name: 'Trend Follower v2',
+  description: 'Segue il momentum su favoriti 0.60-0.85 con TP 12% raggiungibile e scadenza breve.',
+  area: 'polymarket',
+  risk_level: 'moderate',
+  rules: {
+    entry_rules: [
+      { id: 'rising', condition: 'price_range', description: 'Quote favoriti in crescita 0.60-0.85', params: { min_price: 0.60, max_price: 0.85 } },
+      { id: 'volume', condition: 'min_volume', description: 'Volume 24h minimo $50k', params: { min_volume_usd: 50000 } },
+      { id: 'time', condition: 'max_expiry', description: 'Scadenza entro 21 giorni', params: { max_days_to_expiry: 21 } },
+    ],
+    exit_rules: [
+      { id: 'tp', condition: 'take_profit', description: 'Prendi profitto al 8%', params: { profit_pct: 8, sell_fraction: 1.0 } },
+      { id: 'sl', condition: 'stop_loss', description: 'Stop loss al -5%', params: { loss_pct: -5, sell_fraction: 1.0 } },
+    ],
+    bankroll_tiers: { tier1: { allocation_pct: 45, description: 'Core' }, tier2: { allocation_pct: 35, description: 'Secondarie' }, tier3: { allocation_pct: 20, description: 'Esplorative' } },
+    liquidity_reserve_pct: 25,
+    circuit_breaker_total: { loss_pct: -15, action: 'Pausa strategia', description: 'Stop se drawdown > 15%' },
+  },
+  rules_readable: 'QUANDO: prezzo 0.60-0.85\nE: volume24h > $50k\nE: scadenza < 21gg\nALLORA: ENTRA long\nESCI_SE: profitto > 8% OPPURE perdita > 5%',
+  max_drawdown: 15,
+  max_allocation_pct: 8,
+  max_consecutive_losses: 5,
+  sizing_method: 'fixed_percentage',
+  sizing_value: 3,
+  min_ev: 3,
+  min_probability: 55,
+};
+
+const PM_M04b: StrategySeed = {
+  code: 'PM-M04b',
+  name: 'Mid-Range Grinder v2',
+  description: 'Quote medio-alte 0.60-0.80 con SL -4% stretto e scadenza breve per convergenza favorevole.',
+  area: 'polymarket',
+  risk_level: 'moderate',
+  rules: {
+    entry_rules: [
+      { id: 'indecision', condition: 'price_range', description: 'Quote medio-alte 0.60-0.80', params: { min_price: 0.60, max_price: 0.80 } },
+      { id: 'volume', condition: 'min_volume', description: 'Volume 24h minimo $40k', params: { min_volume_usd: 40000 } },
+      { id: 'time', condition: 'max_expiry', description: 'Scadenza entro 14 giorni', params: { max_days_to_expiry: 14 } },
+    ],
+    exit_rules: [
+      { id: 'tp', condition: 'take_profit', description: 'Prendi profitto al 6%', params: { profit_pct: 6, sell_fraction: 1.0 } },
+      { id: 'sl', condition: 'stop_loss', description: 'Stop loss al -4%', params: { loss_pct: -4, sell_fraction: 1.0 } },
+    ],
+    bankroll_tiers: { tier1: { allocation_pct: 40, description: 'Core' }, tier2: { allocation_pct: 40, description: 'Secondarie' }, tier3: { allocation_pct: 20, description: 'Esplorative' } },
+    liquidity_reserve_pct: 25,
+    circuit_breaker_total: { loss_pct: -12, action: 'Pausa strategia', description: 'Stop se drawdown > 12%' },
+  },
+  rules_readable: 'QUANDO: prezzo 0.60-0.80\nE: volume24h > $40k\nE: scadenza < 14gg\nALLORA: ENTRA long\nESCI_SE: profitto > 6% OPPURE perdita > 4%',
+  max_drawdown: 12,
+  max_allocation_pct: 8,
+  max_consecutive_losses: 6,
+  sizing_method: 'fixed_percentage',
+  sizing_value: 3,
+  min_ev: 3,
+  min_probability: 55,
+};
+
+const PM_M05b: StrategySeed = {
+  code: 'PM-M05b',
+  name: 'Wide Net v2',
+  description: 'Range ristretto a 0.60-0.85 con scadenza breve per edge da convergenza. Volume alto per liquidita.',
+  area: 'polymarket',
+  risk_level: 'moderate',
+  rules: {
+    entry_rules: [
+      { id: 'wide', condition: 'price_range', description: 'Quote favoriti 0.60-0.85', params: { min_price: 0.60, max_price: 0.85 } },
+      { id: 'volume', condition: 'min_volume', description: 'Volume 24h minimo $50k', params: { min_volume_usd: 50000 } },
+      { id: 'time', condition: 'max_expiry', description: 'Scadenza entro 21 giorni', params: { max_days_to_expiry: 21 } },
+    ],
+    exit_rules: [
+      { id: 'tp', condition: 'take_profit', description: 'Prendi profitto al 7%', params: { profit_pct: 7, sell_fraction: 1.0 } },
+      { id: 'sl', condition: 'stop_loss', description: 'Stop loss al -4%', params: { loss_pct: -4, sell_fraction: 1.0 } },
+    ],
+    bankroll_tiers: { tier1: { allocation_pct: 35, description: 'Core' }, tier2: { allocation_pct: 40, description: 'Secondarie' }, tier3: { allocation_pct: 25, description: 'Esplorative' } },
+    liquidity_reserve_pct: 25,
+    circuit_breaker_total: { loss_pct: -12, action: 'Pausa strategia', description: 'Stop se drawdown > 12%' },
+  },
+  rules_readable: 'QUANDO: prezzo 0.60-0.85\nE: volume24h > $50k\nE: scadenza < 21gg\nALLORA: ENTRA long\nESCI_SE: profitto > 7% OPPURE perdita > 4%',
+  max_drawdown: 12,
+  max_allocation_pct: 8,
+  max_consecutive_losses: 7,
+  sizing_method: 'fixed_percentage',
+  sizing_value: 3,
+  min_ev: 3,
+  min_probability: 55,
+};
+
+// ============================================================================
 // AGGRESSIVE (3) — High reward, high volatility
 // ============================================================================
 
@@ -445,4 +629,6 @@ export const POLYMARKET_STRATEGIES: StrategySeed[] = [
   PM_M01, PM_M02, PM_M03, PM_M04, PM_M05,
   // Aggressive
   PM_A01, PM_A02, PM_A03,
+  // V2 — Fixed strategies
+  PM_C04b, PM_C05b, PM_M01b, PM_M02b, PM_M04b, PM_M05b,
 ];

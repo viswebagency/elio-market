@@ -68,6 +68,21 @@ interface ApiStrategy {
   } | null;
 }
 
+interface EquityPoint {
+  timestamp: string;
+  equity: number;
+  pnlToday: number;
+}
+
+const RISK_GROUPS = ['conservative', 'moderate', 'aggressive'] as const;
+type RiskGroup = (typeof RISK_GROUPS)[number];
+
+const RISK_LINE_COLORS: Record<RiskGroup, string> = {
+  conservative: '#34d399',
+  moderate: '#fbbf24',
+  aggressive: '#f87171',
+};
+
 // ---------------------------------------------------------------------------
 // Area mapping
 // ---------------------------------------------------------------------------
@@ -265,6 +280,9 @@ export default function StrategiesPage() {
           ))}
         </div>
       </div>
+
+      {/* P&L Dashboard */}
+      <PnlDashboard apiStrategies={apiStrategies} equityCurves={equityCurves} />
 
       {/* Strategy Table */}
       <StrategyTable
@@ -485,5 +503,316 @@ function BacktestCard({
             : `Lancia ${getNextLevel(highestLevel) ? LEVEL_CONFIG[getNextLevel(highestLevel)!]?.label ?? 'pipeline' : 'pipeline'}`}
       </button>
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// P&L Dashboard
+// ---------------------------------------------------------------------------
+
+function PnlDashboard({
+  apiStrategies,
+  equityCurves,
+}: {
+  apiStrategies: ApiStrategy[];
+  equityCurves: Record<string, EquityPoint[] | { timestamp: string; equity: number }[]>;
+}) {
+  const withSession = apiStrategies.filter((s) => s.session);
+
+  // Aggregated summary
+  const totalPnl = withSession.reduce((sum, s) => sum + (s.session?.totalPnl ?? 0), 0);
+  const totalInitial = withSession.reduce((sum, s) => sum + (s.session?.initialCapital ?? 0), 0);
+  const totalCurrent = withSession.reduce((sum, s) => sum + (s.session?.currentCapital ?? 0), 0);
+
+  const best = withSession.length > 0
+    ? withSession.reduce((a, b) =>
+        (a.session?.totalPnlPct ?? -Infinity) >= (b.session?.totalPnlPct ?? -Infinity) ? a : b,
+      )
+    : null;
+  const worst = withSession.length > 0
+    ? withSession.reduce((a, b) =>
+        (a.session?.totalPnlPct ?? Infinity) <= (b.session?.totalPnlPct ?? Infinity) ? a : b,
+      )
+    : null;
+
+  // Risk group aggregation
+  const riskGroupData = useMemo(() => {
+    return RISK_GROUPS.map((group) => {
+      const groupStrategies = apiStrategies.filter((s) => s.riskLevel === group);
+      const withSess = groupStrategies.filter((s) => s.session);
+      const combinedPnl = withSess.reduce((sum, s) => sum + (s.session?.totalPnl ?? 0), 0);
+      const avgRoi = withSess.length > 0
+        ? withSess.reduce((sum, s) => sum + (s.session?.totalPnlPct ?? 0), 0) / withSess.length
+        : 0;
+      return {
+        group,
+        count: groupStrategies.filter((s) => s.isActive).length,
+        combinedPnl,
+        avgRoi,
+      };
+    });
+  }, [apiStrategies]);
+
+  // Aggregated equity curves per risk group
+  const aggregatedCurves = useMemo(() => {
+    const result: Record<RiskGroup, { timestamp: string; equity: number }[]> = {
+      conservative: [],
+      moderate: [],
+      aggressive: [],
+    };
+
+    for (const group of RISK_GROUPS) {
+      const groupStrategyIds = apiStrategies
+        .filter((s) => s.riskLevel === group)
+        .map((s) => s.id);
+
+      // Collect all timestamps across group strategies
+      const timestampMap: Record<string, number> = {};
+      for (const sid of groupStrategyIds) {
+        const curve = equityCurves[sid];
+        if (!curve) continue;
+        for (const pt of curve) {
+          timestampMap[pt.timestamp] = (timestampMap[pt.timestamp] ?? 0) + pt.equity;
+        }
+      }
+
+      const sorted = Object.entries(timestampMap)
+        .map(([timestamp, equity]) => ({ timestamp, equity }))
+        .sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+      result[group] = sorted;
+    }
+
+    return result;
+  }, [apiStrategies, equityCurves]);
+
+  const hasEquityData = RISK_GROUPS.some((g) => aggregatedCurves[g].length > 0);
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold text-gray-100">Dashboard P&L Aggregato</h2>
+
+      {/* Aggregated Summary Cards */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <div className="rounded-xl border border-gray-800 bg-gray-900/50 backdrop-blur-sm px-6 py-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">P&L totale</p>
+          <p className={`text-xl font-bold font-mono mt-1 ${totalPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+            {totalPnl >= 0 ? '+' : ''}${totalPnl.toFixed(2)}
+          </p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900/50 backdrop-blur-sm px-6 py-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Capitale impiegato vs attuale</p>
+          <p className="text-sm font-mono mt-1 text-gray-400">
+            ${totalInitial.toFixed(0)} <span className="text-gray-600">→</span>{' '}
+            <span className={totalCurrent >= totalInitial ? 'text-emerald-400' : 'text-red-400'}>
+              ${totalCurrent.toFixed(0)}
+            </span>
+          </p>
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900/50 backdrop-blur-sm px-6 py-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Miglior strategia</p>
+          {best ? (
+            <>
+              <p className="text-sm font-medium text-gray-100 mt-1 truncate">{best.name}</p>
+              <p className="text-xs font-mono text-emerald-400">
+                +{(best.session?.totalPnlPct ?? 0).toFixed(2)}%
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 mt-1">N/A</p>
+          )}
+        </div>
+        <div className="rounded-xl border border-gray-800 bg-gray-900/50 backdrop-blur-sm px-6 py-4">
+          <p className="text-xs text-gray-500 uppercase tracking-wider">Peggior strategia</p>
+          {worst ? (
+            <>
+              <p className="text-sm font-medium text-gray-100 mt-1 truncate">{worst.name}</p>
+              <p className={`text-xs font-mono ${(worst.session?.totalPnlPct ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                {(worst.session?.totalPnlPct ?? 0) >= 0 ? '+' : ''}{(worst.session?.totalPnlPct ?? 0).toFixed(2)}%
+              </p>
+            </>
+          ) : (
+            <p className="text-sm text-gray-500 mt-1">N/A</p>
+          )}
+        </div>
+      </div>
+
+      {/* P&L by Risk Group */}
+      <div className="grid grid-cols-3 gap-4">
+        {riskGroupData.map(({ group, count, combinedPnl, avgRoi }) => {
+          const borderColor = group === 'conservative'
+            ? 'border-emerald-800/50'
+            : group === 'moderate'
+              ? 'border-amber-800/50'
+              : 'border-red-800/50';
+          return (
+            <div
+              key={group}
+              className={`rounded-xl border ${borderColor} bg-gray-900/50 px-4 py-3 space-y-1`}
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className="inline-block w-2 h-2 rounded-full"
+                  style={{ backgroundColor: RISK_LINE_COLORS[group as RiskGroup] }}
+                />
+                <p className={`text-xs uppercase tracking-wider ${RISK_COLORS[group]}`}>
+                  {RISK_LABELS[group]}
+                </p>
+              </div>
+              <p className="text-lg font-bold text-gray-100">
+                {count} <span className="text-sm font-normal text-gray-500">attive</span>
+              </p>
+              <p className={`text-xs font-mono ${combinedPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                P&L combinato: {combinedPnl >= 0 ? '+' : ''}${combinedPnl.toFixed(2)}
+              </p>
+              <p className={`text-xs font-mono ${avgRoi >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                ROI medio: {avgRoi >= 0 ? '+' : ''}{avgRoi.toFixed(2)}%
+              </p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Aggregated Equity Chart */}
+      <div className="rounded-xl border border-gray-800 bg-gray-900/50 px-6 py-4">
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="text-sm font-semibold text-gray-100">Equity Curve per Gruppo di Rischio</h3>
+          <div className="flex gap-4">
+            {RISK_GROUPS.map((g) => (
+              <div key={g} className="flex items-center gap-1.5">
+                <span
+                  className="inline-block w-2.5 h-2.5 rounded-full"
+                  style={{ backgroundColor: RISK_LINE_COLORS[g] }}
+                />
+                <span className="text-xs text-gray-400">{RISK_LABELS[g]}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+        {hasEquityData ? (
+          <EquityChart curves={aggregatedCurves} />
+        ) : (
+          <div className="flex items-center justify-center h-40 text-sm text-gray-500">
+            Dati equity non ancora disponibili
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// SVG Equity Chart
+// ---------------------------------------------------------------------------
+
+function EquityChart({
+  curves,
+}: {
+  curves: Record<RiskGroup, { timestamp: string; equity: number }[]>;
+}) {
+  const chartWidth = 800;
+  const chartHeight = 200;
+  const padding = { top: 10, right: 10, bottom: 30, left: 60 };
+  const innerW = chartWidth - padding.left - padding.right;
+  const innerH = chartHeight - padding.top - padding.bottom;
+
+  // Compute global min/max for Y axis and X axis
+  const allPoints = RISK_GROUPS.flatMap((g) => curves[g]);
+  if (allPoints.length === 0) return null;
+
+  const allTimestamps = [...new Set(allPoints.map((p) => p.timestamp))].sort();
+  const minEquity = Math.min(...allPoints.map((p) => p.equity));
+  const maxEquity = Math.max(...allPoints.map((p) => p.equity));
+  const yRange = maxEquity - minEquity || 1;
+
+  const xScale = (ts: string) => {
+    const idx = allTimestamps.indexOf(ts);
+    return padding.left + (idx / Math.max(allTimestamps.length - 1, 1)) * innerW;
+  };
+  const yScale = (val: number) => {
+    return padding.top + innerH - ((val - minEquity) / yRange) * innerH;
+  };
+
+  // Generate Y axis ticks (5 ticks)
+  const yTicks = Array.from({ length: 5 }, (_, i) => minEquity + (yRange * i) / 4);
+
+  // Generate X axis labels (max 6)
+  const xLabelCount = Math.min(6, allTimestamps.length);
+  const xLabelIndices = Array.from({ length: xLabelCount }, (_, i) =>
+    Math.round((i / Math.max(xLabelCount - 1, 1)) * (allTimestamps.length - 1)),
+  );
+
+  return (
+    <svg
+      viewBox={`0 0 ${chartWidth} ${chartHeight}`}
+      className="w-full h-auto"
+      preserveAspectRatio="xMidYMid meet"
+    >
+      {/* Grid lines */}
+      {yTicks.map((tick) => (
+        <line
+          key={tick}
+          x1={padding.left}
+          y1={yScale(tick)}
+          x2={chartWidth - padding.right}
+          y2={yScale(tick)}
+          stroke="#374151"
+          strokeWidth="0.5"
+          strokeDasharray="4 4"
+        />
+      ))}
+
+      {/* Y axis labels */}
+      {yTicks.map((tick) => (
+        <text
+          key={`label-${tick}`}
+          x={padding.left - 8}
+          y={yScale(tick) + 3}
+          textAnchor="end"
+          className="fill-gray-500"
+          fontSize="9"
+          fontFamily="monospace"
+        >
+          ${tick.toFixed(0)}
+        </text>
+      ))}
+
+      {/* X axis labels */}
+      {xLabelIndices.map((idx) => {
+        const ts = allTimestamps[idx];
+        const label = ts.slice(5); // MM-DD
+        return (
+          <text
+            key={`x-${idx}`}
+            x={xScale(ts)}
+            y={chartHeight - 5}
+            textAnchor="middle"
+            className="fill-gray-500"
+            fontSize="9"
+            fontFamily="monospace"
+          >
+            {label}
+          </text>
+        );
+      })}
+
+      {/* Equity lines */}
+      {RISK_GROUPS.map((group) => {
+        const pts = curves[group];
+        if (pts.length < 2) return null;
+        const pointsStr = pts.map((p) => `${xScale(p.timestamp)},${yScale(p.equity)}`).join(' ');
+        return (
+          <polyline
+            key={group}
+            points={pointsStr}
+            fill="none"
+            stroke={RISK_LINE_COLORS[group]}
+            strokeWidth="1.5"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        );
+      })}
+    </svg>
   );
 }
