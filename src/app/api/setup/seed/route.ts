@@ -74,7 +74,7 @@ export async function POST(request: NextRequest) {
             sizing_value: strategy.sizing_value,
             min_ev: strategy.min_ev,
             min_probability: strategy.min_probability,
-            status: 'paper',
+            status: 'paper_trading',
             promoted_to_paper_at: new Date().toISOString(),
             is_active: true,
           })
