@@ -106,6 +106,7 @@ export interface FetchMarketsParams {
   active?: boolean;
   closed?: boolean;
   category?: string;
+  tag?: string;
   minVolume?: number;
   sortBy?: 'volume' | 'volume24hr' | 'liquidity' | 'endDate';
   ascending?: boolean;
@@ -188,6 +189,20 @@ const CACHE_TTL_PRICES = 30 * 1000; // 30 secondi
 const MAX_RETRIES = 3;
 const INITIAL_RETRY_DELAY = 500;
 
+/**
+ * Mappa le categorie UI ai tag slug usati dall'API Gamma di Polymarket.
+ * L'endpoint /events supporta il parametro `tag` per filtrare lato server.
+ */
+const CATEGORY_TO_TAG: Record<string, string> = {
+  politics: 'politics',
+  crypto: 'crypto',
+  sports: 'sports',
+  science: 'science',
+  culture: 'pop-culture',
+  business: 'business',
+  tech: 'tech',
+};
+
 class PolymarketClient {
   private cache = new MemoryCache();
   private rateLimiter = new RateLimiter(10, 1000); // 10 req/sec
@@ -243,6 +258,7 @@ class PolymarketClient {
       active = true,
       closed = false,
       category,
+      tag,
       minVolume,
       sortBy = 'volume24hr',
       ascending = false,
@@ -252,31 +268,35 @@ class PolymarketClient {
     const cached = this.cache.get<ParsedMarket[]>(cacheKey);
     if (cached) return cached;
 
-    const searchParams = new URLSearchParams();
-    searchParams.set('limit', String(limit));
-    searchParams.set('offset', String(offset));
-    searchParams.set('active', String(active));
-    searchParams.set('closed', String(closed));
+    // Risolvi tag dalla categoria se non fornito esplicitamente
+    const resolvedTag = tag ?? (category ? CATEGORY_TO_TAG[category.toLowerCase()] : undefined);
 
-    // Gamma API usa "order" per il sort field e "ascending" per la direzione
-    const orderMap: Record<string, string> = {
-      volume: 'volume',
-      volume24hr: 'volume24hr',
-      liquidity: 'liquidityNum',
-      endDate: 'endDate',
-    };
-    searchParams.set('order', orderMap[sortBy] ?? 'volume24hr');
-    searchParams.set('ascending', String(ascending));
+    let markets: ParsedMarket[];
 
-    const url = `${GAMMA_API}/markets?${searchParams}`;
-    const raw = await this.fetchWithRetry<PolymarketRawMarket[]>(url);
+    if (resolvedTag) {
+      // Usa l'endpoint /events con tag per filtrare lato server,
+      // poi estrai i mercati dagli eventi
+      markets = await this.getMarketsByTag(resolvedTag, { limit, offset, active, closed, sortBy, ascending });
+    } else {
+      const searchParams = new URLSearchParams();
+      searchParams.set('limit', String(limit));
+      searchParams.set('offset', String(offset));
+      searchParams.set('active', String(active));
+      searchParams.set('closed', String(closed));
 
-    let markets = raw.map(parseRawMarket);
+      // Gamma API usa "order" per il sort field e "ascending" per la direzione
+      const orderMap: Record<string, string> = {
+        volume: 'volume',
+        volume24hr: 'volume24hr',
+        liquidity: 'liquidityNum',
+        endDate: 'endDate',
+      };
+      searchParams.set('order', orderMap[sortBy] ?? 'volume24hr');
+      searchParams.set('ascending', String(ascending));
 
-    // Filtra per categoria (client-side, Gamma non supporta filtro diretto)
-    if (category) {
-      const cat = category.toLowerCase();
-      markets = markets.filter((m) => m.category.toLowerCase().includes(cat));
+      const url = `${GAMMA_API}/markets?${searchParams}`;
+      const raw = await this.fetchWithRetry<PolymarketRawMarket[]>(url);
+      markets = raw.map(parseRawMarket);
     }
 
     // Filtra per volume minimo
@@ -286,6 +306,63 @@ class PolymarketClient {
 
     this.cache.set(cacheKey, markets, CACHE_TTL_MARKETS);
     return markets;
+  }
+
+  // -------------------------------------------------------------------------
+  // Markets filtrati per tag via endpoint /events
+  // -------------------------------------------------------------------------
+
+  private async getMarketsByTag(
+    tag: string,
+    opts: { limit: number; offset: number; active: boolean; closed: boolean; sortBy: string; ascending: boolean }
+  ): Promise<ParsedMarket[]> {
+    const searchParams = new URLSearchParams();
+    // Richiedi piu' eventi per compensare quelli con pochi mercati
+    searchParams.set('limit', String(Math.min(opts.limit, 50)));
+    searchParams.set('offset', String(opts.offset));
+    searchParams.set('active', String(opts.active));
+    searchParams.set('closed', String(opts.closed));
+    searchParams.set('tag', tag);
+
+    const orderMap: Record<string, string> = {
+      volume: 'volume',
+      volume24hr: 'volume24hr',
+      liquidity: 'liquidityNum',
+      endDate: 'endDate',
+    };
+    searchParams.set('order', orderMap[opts.sortBy] ?? 'volume24hr');
+    searchParams.set('ascending', String(opts.ascending));
+
+    const url = `${GAMMA_API}/events?${searchParams}`;
+    const events = await this.fetchWithRetry<PolymarketRawEvent[]>(url);
+
+    // Estrai e parsa tutti i mercati dagli eventi
+    const markets: ParsedMarket[] = [];
+    for (const event of events) {
+      if (event.markets && event.markets.length > 0) {
+        for (const rawMarket of event.markets) {
+          // Eredita la categoria dall'evento se il mercato non ne ha una
+          if (!rawMarket.category && event.category) {
+            rawMarket.category = event.category;
+          }
+          const parsed = parseRawMarket(rawMarket);
+          // Rispetta i filtri active/closed
+          if (opts.active && !parsed.active) continue;
+          if (!opts.closed && parsed.closed) continue;
+          markets.push(parsed);
+        }
+      }
+    }
+
+    // Ordina i mercati risultanti
+    const sortKey = opts.sortBy as keyof ParsedMarket;
+    markets.sort((a, b) => {
+      const aVal = (sortKey === 'endDate' ? new Date(a.endDate).getTime() : (a[sortKey] as number)) ?? 0;
+      const bVal = (sortKey === 'endDate' ? new Date(b.endDate).getTime() : (b[sortKey] as number)) ?? 0;
+      return opts.ascending ? (aVal as number) - (bVal as number) : (bVal as number) - (aVal as number);
+    });
+
+    return markets.slice(0, opts.limit);
   }
 
   async getMarket(marketId: string): Promise<ParsedMarket> {
@@ -469,12 +546,29 @@ function safeJsonParse<T>(str: string | undefined | null, fallback: T): T {
   }
 }
 
+/** Normalizza le categorie slug dell'API in label leggibili */
+function normalizeCategory(raw: string | undefined): string {
+  if (!raw) return 'Uncategorized';
+  const map: Record<string, string> = {
+    'us-current-affairs': 'Politics',
+    'politics': 'Politics',
+    'crypto': 'Crypto',
+    'sports': 'Sports',
+    'science': 'Science',
+    'pop-culture': 'Pop Culture',
+    'culture': 'Pop Culture',
+    'business': 'Business',
+    'tech': 'Tech',
+  };
+  return map[raw.toLowerCase()] ?? raw.charAt(0).toUpperCase() + raw.slice(1).replace(/-/g, ' ');
+}
+
 function parseRawMarket(raw: PolymarketRawMarket): ParsedMarket {
   return {
     id: raw.id,
     question: raw.question,
     slug: raw.slug,
-    category: raw.category ?? raw.events?.[0]?.category ?? 'Uncategorized',
+    category: normalizeCategory(raw.category ?? raw.events?.[0]?.category),
     description: raw.description,
     outcomes: safeJsonParse<string[]>(raw.outcomes, []),
     outcomePrices: safeJsonParse<string[]>(raw.outcomePrices, []).map(Number),

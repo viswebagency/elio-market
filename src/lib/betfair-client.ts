@@ -97,30 +97,30 @@ class RateLimiter {
 
 function generateMockSports(): BetfairSport[] {
   return [
-    { id: '1', name: 'Calcio', marketCount: 4520 },
+    { id: '1', name: 'Soccer', marketCount: 4520 },
     { id: '2', name: 'Tennis', marketCount: 1830 },
-    { id: '7522', name: 'Basket', marketCount: 920 },
-    { id: '7', name: 'Ippica', marketCount: 680 },
+    { id: '7522', name: 'Basketball', marketCount: 920 },
+    { id: '7', name: 'Horse Racing', marketCount: 680 },
     { id: '4', name: 'Cricket', marketCount: 340 },
-    { id: '7524', name: 'Hockey su ghiaccio', marketCount: 290 },
-    { id: '6423', name: 'Football americano', marketCount: 180 },
+    { id: '7524', name: 'Ice Hockey', marketCount: 290 },
+    { id: '6423', name: 'American Football', marketCount: 180 },
     { id: '7511', name: 'Baseball', marketCount: 150 },
     { id: '3', name: 'Golf', marketCount: 120 },
-    { id: '6', name: 'Boxe', marketCount: 45 },
-    { id: '2378961', name: 'Politica', marketCount: 35 },
+    { id: '6', name: 'Boxing', marketCount: 45 },
+    { id: '2378961', name: 'Politics', marketCount: 35 },
   ];
 }
 
 function generateMockCompetitions(sportId: string): BetfairCompetition[] {
   const competitionsBySport: Record<string, BetfairCompetition[]> = {
     '1': [
-      { id: '81', name: 'Serie A', region: 'IT', marketCount: 320 },
-      { id: '31', name: 'Premier League', region: 'GB', marketCount: 410 },
-      { id: '117', name: 'La Liga', region: 'ES', marketCount: 280 },
-      { id: '59', name: 'Bundesliga', region: 'DE', marketCount: 250 },
-      { id: '55', name: 'Ligue 1', region: 'FR', marketCount: 220 },
-      { id: '228', name: 'Champions League', region: 'EU', marketCount: 180 },
-      { id: '300', name: 'Europa League', region: 'EU', marketCount: 140 },
+      { id: '81', name: 'Italian Serie A', region: 'IT', marketCount: 320 },
+      { id: '31', name: 'English Premier League', region: 'GB', marketCount: 410 },
+      { id: '117', name: 'Spanish La Liga', region: 'ES', marketCount: 280 },
+      { id: '59', name: 'German Bundesliga', region: 'DE', marketCount: 250 },
+      { id: '55', name: 'French Ligue 1', region: 'FR', marketCount: 220 },
+      { id: '228', name: 'UEFA Champions League', region: 'EU', marketCount: 180 },
+      { id: '300', name: 'UEFA Europa League', region: 'EU', marketCount: 140 },
     ],
     '2': [
       { id: '200', name: 'ATP Tour', region: 'INTL', marketCount: 450 },
@@ -130,49 +130,163 @@ function generateMockCompetitions(sportId: string): BetfairCompetition[] {
     '7522': [
       { id: '400', name: 'NBA', region: 'US', marketCount: 520 },
       { id: '401', name: 'Euroleague', region: 'EU', marketCount: 180 },
-      { id: '402', name: 'Serie A Basket', region: 'IT', marketCount: 90 },
+      { id: '402', name: 'Italian Serie A Basketball', region: 'IT', marketCount: 90 },
     ],
   };
 
   return competitionsBySport[sportId] ?? [
-    { id: '999', name: 'Principale', region: 'INTL', marketCount: 50 },
+    { id: '999', name: 'Main', region: 'INTL', marketCount: 50 },
   ];
 }
 
-function generateMockEvents(competitionId: string): BetfairEvent[] {
-  const now = Date.now();
-  const hour = 3600000;
+// Mappa quote fisse per evento: [home back, draw back, away back]
+// Le quote riflettono il reale equilibrio tra le squadre
+const MOCK_ODDS: Record<string, [number, number, number]> = {
+  // Serie A - Giornata 29 (22-23 marzo 2026)
+  e1: [2.60, 3.30, 2.80],   // Juventus v Napoli — match equilibrato, lieve vantaggio casa
+  e2: [2.10, 3.40, 3.60],   // Inter v Genoa — Inter netta favorita
+  e3: [2.90, 3.20, 2.55],   // Lazio v Atalanta — Atalanta leggermente favorita
+  e4: [1.85, 3.50, 4.50],   // Milan v Monza — Milan favorito
+  e5: [2.50, 3.20, 2.95],   // Fiorentina v Roma — equilibrato
+  e6: [2.00, 3.40, 3.80],   // Bologna v Cagliari — Bologna favorito
+  e7: [1.75, 3.60, 5.00],   // Torino v Lecce — Torino netto favorito
+  e8: [3.10, 3.30, 2.35],   // Empoli v Udinese — Udinese favorita in trasferta
+  // Serie A - Giornata 30 (29-30 marzo 2026)
+  e9: [2.70, 3.25, 2.70],   // Napoli v Roma — equilibrato
+  e10a: [1.65, 3.80, 5.50], // Inter v Lecce — Inter super favorita
 
+  // Premier League - Matchday 30 (22 marzo 2026)
+  e10: [1.55, 4.20, 6.00],  // Arsenal v Leicester — Arsenal netto favorito
+  e11: [1.70, 3.80, 5.00],  // Liverpool v Wolves — Liverpool favorito
+  e12: [2.40, 3.40, 3.00],  // Man Utd v Aston Villa — equilibrato
+  e13: [1.90, 3.50, 4.20],  // Newcastle v West Ham — Newcastle favorito
+  e14: [2.80, 3.30, 2.60],  // Chelsea v Brighton — Brighton leggermente favorito
+
+  // La Liga - Jornada 29 (22-23 marzo 2026)
+  e20: [1.45, 4.50, 7.50],  // Real Madrid v Valladolid — Real nettissimo favorito
+  e21: [1.60, 4.00, 5.50],  // Barcelona v Celta Vigo — Barca netto favorito
+  e22: [1.80, 3.60, 4.60],  // Atletico Madrid v Real Betis — Atletico favorito
+  e23: [2.30, 3.30, 3.20],  // Real Sociedad v Villarreal — equilibrato
+  e24: [2.50, 3.20, 2.90],  // Athletic Bilbao v Girona — equilibrato
+
+  // Bundesliga - Spieltag 27 (22 marzo 2026)
+  e30b: [1.40, 4.80, 8.00], // Bayern Munich v Mainz — Bayern nettissimo favorito
+  e31b: [1.75, 3.70, 4.80], // Borussia Dortmund v Hoffenheim — BVB favorito
+  e32b: [1.90, 3.50, 4.20], // Bayer Leverkusen v Freiburg — Leverkusen favorito
+  e33b: [2.30, 3.30, 3.20], // RB Leipzig v Wolfsburg — Leipzig legg. favorito
+
+  // Ligue 1 - Journée 28 (22-23 marzo 2026)
+  e40l: [1.25, 6.00, 12.00], // PSG v Montpellier — PSG dominante
+  e41l: [2.10, 3.40, 3.50],  // Marseille v Lens — OM legg. favorito
+  e42l: [1.85, 3.50, 4.40],  // Monaco v Rennes — Monaco favorito
+  e43l: [2.00, 3.40, 3.80],  // Lyon v Nantes — Lyon favorito
+
+  // Champions League - Quarti di finale (andata, 8-9 aprile 2026)
+  e30: [2.20, 3.40, 3.30],  // Arsenal v Barcelona — equilibrato, legg. Arsenal
+  e31: [2.50, 3.30, 2.85],  // Bayern Munich v Real Madrid — legg. Real favorito
+  e32: [2.40, 3.30, 3.00],  // Inter v Atletico Madrid — equilibrato
+  e33: [3.20, 3.40, 2.25],  // PSG v Liverpool — Liverpool favorito
+
+  // Europa League - Quarti di finale (andata, 10 aprile 2026)
+  e50: [2.00, 3.40, 3.80],  // Lazio v Athletic Bilbao — Lazio legg. favorita
+  e51: [2.30, 3.30, 3.20],  // Tottenham v Lyon — equilibrato
+
+  // NBA
+  e40: [1.80, 0, 2.05],     // LA Lakers v Boston Celtics (no pareggio)
+  e41: [1.95, 0, 1.90],     // Golden State Warriors v Miami Heat
+};
+
+function generateMockEvents(competitionId: string): BetfairEvent[] {
   const eventsByCompetition: Record<string, BetfairEvent[]> = {
+    // -----------------------------------------------------------------------
+    // Serie A 2025/2026 — Giornate 29 e 30
+    // Squadre: Inter, Napoli, Juventus, Milan, Atalanta, Lazio, Roma,
+    //          Fiorentina, Bologna, Torino, Udinese, Genoa, Cagliari,
+    //          Empoli, Monza, Lecce, Como, Verona, Parma, Venezia
+    // -----------------------------------------------------------------------
     '81': [
-      { id: 'e1', name: 'Juventus v Inter', countryCode: 'IT', timezone: 'CET', openDate: new Date(now + 2 * hour).toISOString(), marketCount: 45, competitionId: '81', competitionName: 'Serie A' },
-      { id: 'e2', name: 'Milan v Napoli', countryCode: 'IT', timezone: 'CET', openDate: new Date(now + 5 * hour).toISOString(), marketCount: 42, competitionId: '81', competitionName: 'Serie A' },
-      { id: 'e3', name: 'Roma v Lazio', countryCode: 'IT', timezone: 'CET', openDate: new Date(now + 24 * hour).toISOString(), marketCount: 40, competitionId: '81', competitionName: 'Serie A' },
-      { id: 'e4', name: 'Atalanta v Fiorentina', countryCode: 'IT', timezone: 'CET', openDate: new Date(now + 26 * hour).toISOString(), marketCount: 38, competitionId: '81', competitionName: 'Serie A' },
-      { id: 'e5', name: 'Bologna v Torino', countryCode: 'IT', timezone: 'CET', openDate: new Date(now + 48 * hour).toISOString(), marketCount: 35, competitionId: '81', competitionName: 'Serie A' },
+      { id: 'e1', name: 'Juventus v Napoli', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-22T17:00:00Z', marketCount: 45, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e2', name: 'Inter v Genoa', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-22T19:45:00Z', marketCount: 42, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e3', name: 'Lazio v Atalanta', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-23T14:00:00Z', marketCount: 40, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e4', name: 'Milan v Monza', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-23T17:00:00Z', marketCount: 38, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e5', name: 'Fiorentina v Roma', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-23T19:45:00Z', marketCount: 42, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e6', name: 'Bologna v Cagliari', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-22T14:00:00Z', marketCount: 35, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e7', name: 'Torino v Lecce', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-22T14:00:00Z', marketCount: 35, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e8', name: 'Empoli v Udinese', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-22T14:00:00Z', marketCount: 32, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e9', name: 'Napoli v Roma', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-29T19:45:00Z', marketCount: 44, competitionId: '81', competitionName: 'Italian Serie A' },
+      { id: 'e10a', name: 'Inter v Lecce', countryCode: 'IT', timezone: 'CET', openDate: '2026-03-29T17:00:00Z', marketCount: 40, competitionId: '81', competitionName: 'Italian Serie A' },
     ],
+
+    // -----------------------------------------------------------------------
+    // Premier League 2025/2026 — Matchday 30
+    // -----------------------------------------------------------------------
     '31': [
-      { id: 'e10', name: 'Arsenal v Chelsea', countryCode: 'GB', timezone: 'GMT', openDate: new Date(now + 3 * hour).toISOString(), marketCount: 55, competitionId: '31', competitionName: 'Premier League' },
-      { id: 'e11', name: 'Liverpool v Man City', countryCode: 'GB', timezone: 'GMT', openDate: new Date(now + 6 * hour).toISOString(), marketCount: 52, competitionId: '31', competitionName: 'Premier League' },
-      { id: 'e12', name: 'Man Utd v Tottenham', countryCode: 'GB', timezone: 'GMT', openDate: new Date(now + 28 * hour).toISOString(), marketCount: 48, competitionId: '31', competitionName: 'Premier League' },
+      { id: 'e10', name: 'Arsenal v Leicester', countryCode: 'GB', timezone: 'GMT', openDate: '2026-03-22T14:00:00Z', marketCount: 55, competitionId: '31', competitionName: 'English Premier League' },
+      { id: 'e11', name: 'Liverpool v Wolves', countryCode: 'GB', timezone: 'GMT', openDate: '2026-03-22T16:30:00Z', marketCount: 52, competitionId: '31', competitionName: 'English Premier League' },
+      { id: 'e12', name: 'Man Utd v Aston Villa', countryCode: 'GB', timezone: 'GMT', openDate: '2026-03-22T14:00:00Z', marketCount: 48, competitionId: '31', competitionName: 'English Premier League' },
+      { id: 'e13', name: 'Newcastle v West Ham', countryCode: 'GB', timezone: 'GMT', openDate: '2026-03-22T14:00:00Z', marketCount: 45, competitionId: '31', competitionName: 'English Premier League' },
+      { id: 'e14', name: 'Chelsea v Brighton', countryCode: 'GB', timezone: 'GMT', openDate: '2026-03-23T15:00:00Z', marketCount: 50, competitionId: '31', competitionName: 'English Premier League' },
     ],
+
+    // -----------------------------------------------------------------------
+    // La Liga 2025/2026 — Jornada 29
+    // -----------------------------------------------------------------------
     '117': [
-      { id: 'e20', name: 'Real Madrid v Barcelona', countryCode: 'ES', timezone: 'CET', openDate: new Date(now + 4 * hour).toISOString(), marketCount: 58, competitionId: '117', competitionName: 'La Liga' },
-      { id: 'e21', name: 'Atletico Madrid v Sevilla', countryCode: 'ES', timezone: 'CET', openDate: new Date(now + 27 * hour).toISOString(), marketCount: 42, competitionId: '117', competitionName: 'La Liga' },
+      { id: 'e20', name: 'Real Madrid v Valladolid', countryCode: 'ES', timezone: 'CET', openDate: '2026-03-22T20:00:00Z', marketCount: 55, competitionId: '117', competitionName: 'Spanish La Liga' },
+      { id: 'e21', name: 'Barcelona v Celta Vigo', countryCode: 'ES', timezone: 'CET', openDate: '2026-03-23T17:30:00Z', marketCount: 52, competitionId: '117', competitionName: 'Spanish La Liga' },
+      { id: 'e22', name: 'Atletico Madrid v Real Betis', countryCode: 'ES', timezone: 'CET', openDate: '2026-03-22T17:30:00Z', marketCount: 45, competitionId: '117', competitionName: 'Spanish La Liga' },
+      { id: 'e23', name: 'Real Sociedad v Villarreal', countryCode: 'ES', timezone: 'CET', openDate: '2026-03-22T14:00:00Z', marketCount: 40, competitionId: '117', competitionName: 'Spanish La Liga' },
+      { id: 'e24', name: 'Athletic Bilbao v Girona', countryCode: 'ES', timezone: 'CET', openDate: '2026-03-23T20:00:00Z', marketCount: 42, competitionId: '117', competitionName: 'Spanish La Liga' },
     ],
+
+    // -----------------------------------------------------------------------
+    // Bundesliga 2025/2026 — Spieltag 27
+    // -----------------------------------------------------------------------
+    '59': [
+      { id: 'e30b', name: 'Bayern Munich v Mainz', countryCode: 'DE', timezone: 'CET', openDate: '2026-03-22T14:30:00Z', marketCount: 48, competitionId: '59', competitionName: 'German Bundesliga' },
+      { id: 'e31b', name: 'Borussia Dortmund v Hoffenheim', countryCode: 'DE', timezone: 'CET', openDate: '2026-03-22T14:30:00Z', marketCount: 45, competitionId: '59', competitionName: 'German Bundesliga' },
+      { id: 'e32b', name: 'Bayer Leverkusen v Freiburg', countryCode: 'DE', timezone: 'CET', openDate: '2026-03-22T17:30:00Z', marketCount: 42, competitionId: '59', competitionName: 'German Bundesliga' },
+      { id: 'e33b', name: 'RB Leipzig v Wolfsburg', countryCode: 'DE', timezone: 'CET', openDate: '2026-03-23T14:30:00Z', marketCount: 40, competitionId: '59', competitionName: 'German Bundesliga' },
+    ],
+
+    // -----------------------------------------------------------------------
+    // Ligue 1 2025/2026 — Journée 28
+    // -----------------------------------------------------------------------
+    '55': [
+      { id: 'e40l', name: 'PSG v Montpellier', countryCode: 'FR', timezone: 'CET', openDate: '2026-03-22T20:00:00Z', marketCount: 48, competitionId: '55', competitionName: 'French Ligue 1' },
+      { id: 'e41l', name: 'Marseille v Lens', countryCode: 'FR', timezone: 'CET', openDate: '2026-03-23T19:45:00Z', marketCount: 44, competitionId: '55', competitionName: 'French Ligue 1' },
+      { id: 'e42l', name: 'Monaco v Rennes', countryCode: 'FR', timezone: 'CET', openDate: '2026-03-22T16:00:00Z', marketCount: 40, competitionId: '55', competitionName: 'French Ligue 1' },
+      { id: 'e43l', name: 'Lyon v Nantes', countryCode: 'FR', timezone: 'CET', openDate: '2026-03-23T14:00:00Z', marketCount: 38, competitionId: '55', competitionName: 'French Ligue 1' },
+    ],
+
+    // -----------------------------------------------------------------------
+    // UEFA Champions League 2025/2026 — Quarti di finale (andata)
+    // -----------------------------------------------------------------------
     '228': [
-      { id: 'e30', name: 'Bayern Munich v PSG', countryCode: 'EU', timezone: 'CET', openDate: new Date(now + 8 * hour).toISOString(), marketCount: 50, competitionId: '228', competitionName: 'Champions League' },
-      { id: 'e31', name: 'Real Madrid v Man City', countryCode: 'EU', timezone: 'CET', openDate: new Date(now + 32 * hour).toISOString(), marketCount: 48, competitionId: '228', competitionName: 'Champions League' },
+      { id: 'e30', name: 'Arsenal v Barcelona', countryCode: 'EU', timezone: 'CET', openDate: '2026-04-08T19:00:00Z', marketCount: 55, competitionId: '228', competitionName: 'UEFA Champions League' },
+      { id: 'e31', name: 'Bayern Munich v Real Madrid', countryCode: 'EU', timezone: 'CET', openDate: '2026-04-08T21:00:00Z', marketCount: 55, competitionId: '228', competitionName: 'UEFA Champions League' },
+      { id: 'e32', name: 'Inter v Atletico Madrid', countryCode: 'EU', timezone: 'CET', openDate: '2026-04-09T19:00:00Z', marketCount: 52, competitionId: '228', competitionName: 'UEFA Champions League' },
+      { id: 'e33', name: 'PSG v Liverpool', countryCode: 'EU', timezone: 'CET', openDate: '2026-04-09T21:00:00Z', marketCount: 52, competitionId: '228', competitionName: 'UEFA Champions League' },
     ],
+
+    // -----------------------------------------------------------------------
+    // UEFA Europa League 2025/2026 — Quarti di finale (andata)
+    // -----------------------------------------------------------------------
+    '300': [
+      { id: 'e50', name: 'Lazio v Athletic Bilbao', countryCode: 'EU', timezone: 'CET', openDate: '2026-04-10T19:00:00Z', marketCount: 42, competitionId: '300', competitionName: 'UEFA Europa League' },
+      { id: 'e51', name: 'Tottenham v Lyon', countryCode: 'EU', timezone: 'CET', openDate: '2026-04-10T21:00:00Z', marketCount: 42, competitionId: '300', competitionName: 'UEFA Europa League' },
+    ],
+
+    // -----------------------------------------------------------------------
+    // NBA 2025/2026
+    // -----------------------------------------------------------------------
     '400': [
-      { id: 'e40', name: 'LA Lakers v Boston Celtics', countryCode: 'US', timezone: 'EST', openDate: new Date(now + 10 * hour).toISOString(), marketCount: 30, competitionId: '400', competitionName: 'NBA' },
-      { id: 'e41', name: 'Golden State Warriors v Miami Heat', countryCode: 'US', timezone: 'EST', openDate: new Date(now + 12 * hour).toISOString(), marketCount: 28, competitionId: '400', competitionName: 'NBA' },
+      { id: 'e40', name: 'LA Lakers v Boston Celtics', countryCode: 'US', timezone: 'EST', openDate: '2026-03-22T00:30:00Z', marketCount: 30, competitionId: '400', competitionName: 'NBA' },
+      { id: 'e41', name: 'Golden State Warriors v Miami Heat', countryCode: 'US', timezone: 'EST', openDate: '2026-03-23T00:00:00Z', marketCount: 28, competitionId: '400', competitionName: 'NBA' },
     ],
   };
 
-  return eventsByCompetition[competitionId] ?? [
-    { id: 'e99', name: 'Evento di esempio', countryCode: 'XX', timezone: 'UTC', openDate: new Date(now + 5 * hour).toISOString(), marketCount: 10, competitionId, competitionName: 'Competizione' },
-  ];
+  return eventsByCompetition[competitionId] ?? [];
 }
 
 function generateMockPrice(basePrice: number, variance: number): BetfairPrice[] {
@@ -187,63 +301,80 @@ function generateMockPrice(basePrice: number, variance: number): BetfairPrice[] 
   return prices;
 }
 
-function generateMockRunners(eventName: string): BetfairRunner[] {
+function generateMockRunners(eventId: string, eventName: string): BetfairRunner[] {
   const parts = eventName.split(' v ');
   const home = parts[0] ?? 'Home';
   const away = parts[1] ?? 'Away';
 
-  // Quote realistiche per match odds
-  const homeOdds = parseFloat((1.5 + Math.random() * 2.5).toFixed(2));
-  const drawOdds = parseFloat((2.8 + Math.random() * 1.5).toFixed(2));
-  const awayOdds = parseFloat((2.0 + Math.random() * 3.0).toFixed(2));
+  // Quote fisse dalla mappa, fallback realistici
+  const odds = MOCK_ODDS[eventId] ?? [2.50, 3.30, 2.90];
+  const homeOdds = odds[0];
+  const drawOdds = odds[1];
+  const awayOdds = odds[2];
 
-  return [
+  // Per sport senza pareggio (es. NBA/basket), drawOdds === 0
+  const isNoDraw = drawOdds === 0;
+
+  const runners: BetfairRunner[] = [
     {
       selectionId: 1001,
       runnerName: home,
       handicap: 0,
       lastPriceTraded: homeOdds,
-      totalMatched: parseFloat((Math.random() * 100000 + 5000).toFixed(2)),
+      totalMatched: parseFloat((homeOdds < 2.0 ? 85000 + Math.random() * 40000 : 45000 + Math.random() * 30000).toFixed(2)),
       status: 'ACTIVE',
       ex: {
         availableToBack: generateMockPrice(homeOdds, 0.02),
-        availableToLay: generateMockPrice(homeOdds + 0.04, 0.02),
-        tradedVolume: [],
-      },
-    },
-    {
-      selectionId: 1002,
-      runnerName: 'Pareggio',
-      handicap: 0,
-      lastPriceTraded: drawOdds,
-      totalMatched: parseFloat((Math.random() * 50000 + 2000).toFixed(2)),
-      status: 'ACTIVE',
-      ex: {
-        availableToBack: generateMockPrice(drawOdds, 0.05),
-        availableToLay: generateMockPrice(drawOdds + 0.08, 0.05),
-        tradedVolume: [],
-      },
-    },
-    {
-      selectionId: 1003,
-      runnerName: away,
-      handicap: 0,
-      lastPriceTraded: awayOdds,
-      totalMatched: parseFloat((Math.random() * 80000 + 3000).toFixed(2)),
-      status: 'ACTIVE',
-      ex: {
-        availableToBack: generateMockPrice(awayOdds, 0.03),
-        availableToLay: generateMockPrice(awayOdds + 0.06, 0.03),
+        availableToLay: generateMockPrice(homeOdds + 0.03, 0.02),
         tradedVolume: [],
       },
     },
   ];
+
+  if (!isNoDraw) {
+    runners.push({
+      selectionId: 1002,
+      runnerName: 'The Draw',
+      handicap: 0,
+      lastPriceTraded: drawOdds,
+      totalMatched: parseFloat((15000 + Math.random() * 20000).toFixed(2)),
+      status: 'ACTIVE',
+      ex: {
+        availableToBack: generateMockPrice(drawOdds, 0.05),
+        availableToLay: generateMockPrice(drawOdds + 0.05, 0.05),
+        tradedVolume: [],
+      },
+    });
+  }
+
+  runners.push({
+    selectionId: 1003,
+    runnerName: away,
+    handicap: 0,
+    lastPriceTraded: awayOdds,
+    totalMatched: parseFloat((awayOdds < 2.0 ? 85000 + Math.random() * 40000 : 35000 + Math.random() * 25000).toFixed(2)),
+    status: 'ACTIVE',
+    ex: {
+      availableToBack: generateMockPrice(awayOdds, 0.03),
+      availableToLay: generateMockPrice(awayOdds + 0.04, 0.03),
+      tradedVolume: [],
+    },
+  });
+
+  return runners;
+}
+
+/** Helper: raccoglie tutti gli eventi mock da tutte le competizioni */
+function getAllMockEvents(): BetfairEvent[] {
+  const competitionIds = ['81', '31', '117', '59', '55', '228', '300', '400'];
+  return competitionIds.flatMap((cid) => generateMockEvents(cid));
 }
 
 function generateMockMarketCatalogue(eventId: string, eventName: string): BetfairMarket[] {
-  const now = Date.now();
-  const hour = 3600000;
-  const startTime = new Date(now + 4 * hour).toISOString();
+  // Trova la data dell'evento dai mock per usarla come startTime
+  const allEvents = getAllMockEvents();
+  const event = allEvents.find((e) => e.id === eventId);
+  const startTime = event?.openDate ?? new Date(Date.now() + 4 * 3600000).toISOString();
 
   return [
     {
@@ -252,7 +383,7 @@ function generateMockMarketCatalogue(eventId: string, eventName: string): Betfai
       eventId,
       marketStartTime: startTime,
       totalMatched: parseFloat((Math.random() * 500000 + 50000).toFixed(2)),
-      runners: generateMockRunners(eventName),
+      runners: generateMockRunners(eventId, eventName),
       status: 'OPEN',
       inPlay: false,
     },
@@ -338,48 +469,54 @@ function generateMockMarketBook(marketId: string): BetfairMarket {
   const suffix = marketId.split('-').pop();
   const eventId = marketId.split('-').slice(1, -1).join('-');
 
+  // Trova il nome dell'evento dai mock
+  const allEvents = getAllMockEvents();
+  const event = allEvents.find((e) => e.id === eventId);
+  const eventName = event?.name ?? 'Home v Away';
+  const startTime = event?.openDate ?? new Date(Date.now() + 4 * 3600000).toISOString();
+
   if (suffix === 'mo') {
     return {
       marketId,
       marketName: 'Match Odds',
       eventId,
-      marketStartTime: new Date(Date.now() + 4 * 3600000).toISOString(),
+      marketStartTime: startTime,
       totalMatched: parseFloat((Math.random() * 500000 + 50000).toFixed(2)),
-      runners: generateMockRunners('Home v Away'),
+      runners: generateMockRunners(eventId, eventName),
       status: 'OPEN',
       inPlay: false,
     };
   }
 
-  // Default generico
+  // Default generico (Over/Under, BTTS, ecc.)
   return {
     marketId,
     marketName: 'Market',
     eventId,
-    marketStartTime: new Date(Date.now() + 4 * 3600000).toISOString(),
+    marketStartTime: startTime,
     totalMatched: parseFloat((Math.random() * 100000 + 10000).toFixed(2)),
     runners: [
       {
         selectionId: 9001,
-        runnerName: 'Selezione 1',
+        runnerName: 'Selection 1',
         handicap: 0,
         lastPriceTraded: 2.0,
         status: 'ACTIVE',
         ex: {
           availableToBack: generateMockPrice(2.0, 0.02),
-          availableToLay: generateMockPrice(2.06, 0.02),
+          availableToLay: generateMockPrice(2.04, 0.02),
           tradedVolume: [],
         },
       },
       {
         selectionId: 9002,
-        runnerName: 'Selezione 2',
+        runnerName: 'Selection 2',
         handicap: 0,
         lastPriceTraded: 1.9,
         status: 'ACTIVE',
         ex: {
           availableToBack: generateMockPrice(1.9, 0.02),
-          availableToLay: generateMockPrice(1.96, 0.02),
+          availableToLay: generateMockPrice(1.94, 0.02),
           tradedVolume: [],
         },
       },
@@ -620,13 +757,7 @@ class BetfairClient {
 
     if (this.useMock) {
       // Recupera il nome dell'evento dai mock per generare runner realistici
-      const allMockEvents = [
-        ...generateMockEvents('81'),
-        ...generateMockEvents('31'),
-        ...generateMockEvents('117'),
-        ...generateMockEvents('228'),
-        ...generateMockEvents('400'),
-      ];
+      const allMockEvents = getAllMockEvents();
       const event = allMockEvents.find((e) => e.id === eventId);
       const eventName = event?.name ?? 'Home v Away';
       const markets = generateMockMarketCatalogue(eventId, eventName);

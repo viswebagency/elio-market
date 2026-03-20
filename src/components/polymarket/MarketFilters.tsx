@@ -3,14 +3,14 @@
 import { useCallback } from 'react';
 
 const CATEGORIES = [
-  'All',
-  'Politics',
-  'Crypto',
-  'Sports',
-  'Science',
-  'Culture',
-  'Business',
-  'Tech',
+  { value: '', label: 'Tutte' },
+  { value: 'Politics', label: 'Politics' },
+  { value: 'Crypto', label: 'Crypto' },
+  { value: 'Sports', label: 'Sports' },
+  { value: 'Science', label: 'Science' },
+  { value: 'Culture', label: 'Pop Culture' },
+  { value: 'Business', label: 'Business' },
+  { value: 'Tech', label: 'Tech' },
 ];
 
 const SORT_OPTIONS = [
@@ -68,8 +68,8 @@ export default function MarketFilters({
         <label className="text-xs text-gray-500 uppercase tracking-wider">Categoria</label>
         <select value={category} onChange={handleCategory} className={selectClasses}>
           {CATEGORIES.map((c) => (
-            <option key={c} value={c === 'All' ? '' : c}>
-              {c}
+            <option key={c.value} value={c.value}>
+              {c.label}
             </option>
           ))}
         </select>
