@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
 
   const db = createUntypedAdminClient();
   let updated = 0;
-  let skipped = 0;
+  const skipped = 0;
   const errors: string[] = [];
 
   for (const seed of POLYMARKET_STRATEGIES) {
