@@ -38,12 +38,12 @@ export interface StrategySeed {
 const PM_C01: StrategySeed = {
   code: 'PM-C01',
   name: 'Safe Haven',
-  description: 'Mercati ad alto volume con quote estreme (>0.80 o <0.20). Sfrutta la convergenza verso il risultato ovvio con margine minimo ma alta probabilita.',
+  description: 'Mercati ad alto volume con quote estreme (>0.72). Sfrutta la convergenza verso il risultato ovvio con margine minimo ma alta probabilita.',
   area: 'polymarket',
   risk_level: 'conservative',
   rules: {
     entry_rules: [
-      { id: 'price_extreme', condition: 'price_range', description: 'Quote molto alte o molto basse', params: { min_price: 0.80, max_price: 0.95 } },
+      { id: 'price_extreme', condition: 'price_range', description: 'Quote molto alte o molto basse', params: { min_price: 0.72, max_price: 0.98 } },
       { id: 'high_volume', condition: 'min_volume', description: 'Volume 24h minimo $50k', params: { min_volume_usd: 50000 } },
       { id: 'near_expiry', condition: 'max_expiry', description: 'Scadenza entro 14 giorni', params: { max_days_to_expiry: 14 } },
     ],
@@ -55,7 +55,7 @@ const PM_C01: StrategySeed = {
     liquidity_reserve_pct: 25,
     circuit_breaker_total: { loss_pct: -10, action: 'Pausa strategia', description: 'Stop se drawdown > 10%' },
   },
-  rules_readable: 'QUANDO: prezzo > 0.80 E prezzo < 0.95\nE: volume24h > $50k\nE: scadenza < 14 giorni\nALLORA: ENTRA long\nESCI_SE: profitto > 5% OPPURE perdita > 3%',
+  rules_readable: 'QUANDO: prezzo > 0.72 E prezzo < 0.98\nE: volume24h > $50k\nE: scadenza < 14 giorni\nALLORA: ENTRA long\nESCI_SE: profitto > 5% OPPURE perdita > 3%',
   max_drawdown: 10,
   max_allocation_pct: 8,
   max_consecutive_losses: 5,

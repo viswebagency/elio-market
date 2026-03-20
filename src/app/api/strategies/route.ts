@@ -17,7 +17,7 @@ export async function GET() {
     // Load all strategies
     const { data: strategies, error: stratError } = await db
       .from('strategies')
-      .select('id, code, name, description, area, status, risk_level, is_active, max_drawdown, max_allocation_pct, created_at')
+      .select('id, code, name, description, area, status, risk_level, is_active, max_drawdown, max_allocation_pct, created_at, backtest_summary, highest_backtest_level, backtest_passed_levels')
       .order('code', { ascending: true });
 
     if (stratError) {
@@ -103,6 +103,13 @@ export async function GET() {
               totalPnl: session.total_pnl,
               totalPnlPct: session.total_pnl_pct,
               totalTicks: session.total_ticks,
+            }
+          : null,
+        backtest: strat.backtest_summary
+          ? {
+              summary: strat.backtest_summary,
+              highestLevel: strat.highest_backtest_level,
+              passedLevels: strat.backtest_passed_levels ?? [],
             }
           : null,
       };
