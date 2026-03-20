@@ -72,6 +72,8 @@ export default function DashboardPage() {
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
   const [aiStats, setAiStats] = useState<{
     totalCostUsd: number;
+    todayCostUsd: number;
+    dailyBudgetEur: number;
     totalTokensUsed: number;
     totalAnalyses: number;
     totalRequests: number;
@@ -190,7 +192,14 @@ export default function DashboardPage() {
             </div>
             <div className="flex items-center gap-6 text-xs font-mono">
               <div className="text-center">
-                <span className="text-gray-500 block">Speso</span>
+                <span className="text-gray-500 block">Oggi</span>
+                <span className={`${aiStats.todayCostUsd * 0.92 > aiStats.dailyBudgetEur * 0.8 ? 'text-amber-400' : 'text-violet-300'}`}>
+                  ${aiStats.todayCostUsd.toFixed(4)}
+                </span>
+                <span className="text-gray-600 text-[10px]"> / {aiStats.dailyBudgetEur}€</span>
+              </div>
+              <div className="text-center">
+                <span className="text-gray-500 block">Totale</span>
                 <span className="text-violet-300">${aiStats.totalCostUsd.toFixed(4)}</span>
               </div>
               <div className="text-center">

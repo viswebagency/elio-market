@@ -7,8 +7,11 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import { MarketArea } from '../types/common';
+import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6-20250627';
+const DAILY_BUDGET_EUR = parseFloat(process.env.AI_DAILY_BUDGET_EUR ?? '5');
+const EUR_PER_USD = 0.92; // approximate
 
 // ============================================================================
 // Types
@@ -88,17 +91,50 @@ export async function generateAnalysis(
 ): Promise<AnalysisResult> {
   const client = getClaudeClient();
 
-  // Use Claude AI when available
+  // Use Claude AI when available AND budget not exceeded
   if (client) {
-    try {
-      return await generateWithClaude(client, context, type);
-    } catch (error) {
-      console.error('[KB Analyzer] Claude error, falling back to deterministic:', error);
+    const budgetOk = await checkDailyBudget();
+    if (!budgetOk) {
+      console.warn('[KB Analyzer] Daily AI budget exceeded, using deterministic fallback');
+    } else {
+      try {
+        return await generateWithClaude(client, context, type);
+      } catch (error) {
+        console.error('[KB Analyzer] Claude error, falling back to deterministic:', error);
+      }
     }
   }
 
   // Fallback: deterministic analysis
   return generateDeterministic(context, type);
+}
+
+/**
+ * Check if today's AI spending is within budget.
+ * Queries kb_analyses for today's total cost.
+ */
+async function checkDailyBudget(): Promise<boolean> {
+  try {
+    const db = createUntypedAdminClient();
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+
+    const { data } = await db
+      .from('kb_analyses')
+      .select('estimated_cost_usd')
+      .gte('created_at', todayStart.toISOString());
+
+    const todayCostUsd = (data ?? []).reduce(
+      (sum: number, row: { estimated_cost_usd: number }) => sum + (row.estimated_cost_usd ?? 0),
+      0,
+    );
+    const todayCostEur = todayCostUsd * EUR_PER_USD;
+
+    return todayCostEur < DAILY_BUDGET_EUR;
+  } catch {
+    // If budget check fails, allow the call (fail open)
+    return true;
+  }
 }
 
 // ============================================================================

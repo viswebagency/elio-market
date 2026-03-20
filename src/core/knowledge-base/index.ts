@@ -53,6 +53,8 @@ export interface KBStats {
   cacheMisses: number;
   hitRate: number;
   totalCostUsd: number;
+  todayCostUsd: number;
+  dailyBudgetEur: number;
   estimatedSavingsUsd: number;
   totalTokensUsed: number;
   analysesByType: Record<string, number>;
@@ -271,6 +273,21 @@ export class KnowledgeBaseManager {
       0,
     );
 
+    // Today's cost
+    const todayStart = new Date();
+    todayStart.setUTCHours(0, 0, 0, 0);
+    const { data: todayData } = await db
+      .from('kb_analyses')
+      .select('estimated_cost_usd')
+      .gte('created_at', todayStart.toISOString());
+
+    const todayCostUsd = (todayData ?? []).reduce(
+      (sum: number, row: { estimated_cost_usd: number }) => sum + (row.estimated_cost_usd ?? 0),
+      0,
+    );
+
+    const dailyBudgetEur = parseFloat(process.env.AI_DAILY_BUDGET_EUR ?? '5');
+
     // Estimated savings
     const { data: savingsData } = await db
       .from('kb_analysis_requests')
@@ -314,6 +331,8 @@ export class KnowledgeBaseManager {
       cacheMisses: cacheMisses ?? 0,
       hitRate: total > 0 ? hits / total : 0,
       totalCostUsd,
+      todayCostUsd,
+      dailyBudgetEur,
       estimatedSavingsUsd,
       totalTokensUsed,
       analysesByType,
