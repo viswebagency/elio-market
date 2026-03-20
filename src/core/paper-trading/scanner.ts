@@ -11,6 +11,8 @@ import { MarketSnapshot, evaluateEntry } from '../engine/evaluator';
 import { TierLevel } from '../engine/signals';
 import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 import { ScanOpportunity } from './state';
+import { generateAnalysis, AnalysisType, MarketContext } from '../knowledge-base/analyzer';
+import { MarketArea } from '../types/common';
 
 // ============================================================================
 // Types
@@ -78,10 +80,33 @@ export class MarketScanner {
 
     const opportunities: ScanOpportunity[] = [];
 
+    // Pre-detect catalysts for markets (batch, max 10 per scan to control costs)
+    const catalystCache = new Map<string, { hasCatalyst: boolean; description: string | null }>();
+    const needsCatalyst = strategies.some(s =>
+      s.parsed.entryRules.some(r => r.params.type === 'catalyst'),
+    );
+
+    if (needsCatalyst && process.env.ANTHROPIC_API_KEY) {
+      const candidateMarkets = markets.slice(0, 10); // Limit AI calls
+      for (const market of candidateMarkets) {
+        try {
+          const ctx = polymarketToAIContext(market);
+          const result = await generateAnalysis(ctx, AnalysisType.CATALYST_DETECTION);
+          catalystCache.set(market.id, {
+            hasCatalyst: result.structuredData.hasCatalyst ?? false,
+            description: result.structuredData.catalystDescription ?? null,
+          });
+        } catch {
+          // Skip on error, default to no catalyst
+        }
+      }
+    }
+
     // Evaluate each market against each strategy
     for (const strategy of strategies) {
       for (const market of markets) {
-        const snapshot = polymarketToSnapshot(market);
+        const catalyst = catalystCache.get(market.id);
+        const snapshot = polymarketToSnapshot(market, catalyst);
         const evaluation = evaluateEntry(strategy.parsed, snapshot);
 
         if (evaluation.passed && evaluation.totalScore >= this.config.minScore) {
@@ -250,7 +275,10 @@ export class MarketScanner {
 // Helpers
 // ============================================================================
 
-function polymarketToSnapshot(market: ParsedMarket): MarketSnapshot {
+function polymarketToSnapshot(
+  market: ParsedMarket,
+  catalyst?: { hasCatalyst: boolean; description: string | null },
+): MarketSnapshot {
   const yesPrice = market.outcomePrices[0] ?? 0.5;
 
   return {
@@ -260,10 +288,27 @@ function polymarketToSnapshot(market: ParsedMarket): MarketSnapshot {
     volume24hUsd: market.volume24hr,
     totalVolumeUsd: market.volume,
     expiryDate: market.endDate,
-    hasCatalyst: false,
-    catalystDescription: null,
+    hasCatalyst: catalyst?.hasCatalyst ?? false,
+    catalystDescription: catalyst?.description ?? null,
     category: market.category,
     status: market.active && !market.closed ? 'open' : 'closed',
+  };
+}
+
+function polymarketToAIContext(market: ParsedMarket): MarketContext {
+  return {
+    marketId: market.id,
+    marketName: market.question,
+    area: MarketArea.PREDICTION,
+    currentPrice: market.outcomePrices[0] ?? 0.5,
+    volume24h: market.volume24hr,
+    totalVolume: market.volume,
+    liquidity: market.liquidity ?? 0,
+    endDate: market.endDate,
+    category: market.category,
+    description: market.description ?? market.question,
+    outcomes: market.outcomes ?? ['Yes', 'No'],
+    outcomePrices: market.outcomePrices ?? [0.5, 0.5],
   };
 }
 

@@ -1,11 +1,14 @@
 /**
  * Knowledge Base — AI Analysis Generator
  *
- * Generates AI analyses for markets. Currently uses realistic placeholders;
- * structured to accept Claude/OpenAI API when keys are available.
+ * Generates AI analyses for markets using Claude API.
+ * Falls back to deterministic analysis when ANTHROPIC_API_KEY is not set.
  */
 
+import Anthropic from '@anthropic-ai/sdk';
 import { MarketArea } from '../types/common';
+
+const CLAUDE_MODEL = 'claude-sonnet-4-6-20250627';
 
 // ============================================================================
 // Types
@@ -16,6 +19,7 @@ export enum AnalysisType {
   ENTRY_ANALYSIS = 'entry_analysis',
   EXIT_ANALYSIS = 'exit_analysis',
   RISK_ASSESSMENT = 'risk_assessment',
+  CATALYST_DETECTION = 'catalyst_detection',
 }
 
 export interface AnalysisResult {
@@ -41,6 +45,8 @@ export interface AnalysisStructuredData {
   opportunities: string[];
   priceTarget?: { low: number; mid: number; high: number };
   timeHorizon?: string;
+  hasCatalyst?: boolean;
+  catalystDescription?: string;
 }
 
 export interface MarketContext {
@@ -59,84 +65,225 @@ export interface MarketContext {
 }
 
 // ============================================================================
+// Claude AI client (lazy singleton)
+// ============================================================================
+
+let claudeClient: Anthropic | null = null;
+
+function getClaudeClient(): Anthropic | null {
+  if (!process.env.ANTHROPIC_API_KEY) return null;
+  if (!claudeClient) {
+    claudeClient = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
+  }
+  return claudeClient;
+}
+
+// ============================================================================
 // Analysis Generator
 // ============================================================================
 
-/**
- * Generate an AI analysis for a market.
- *
- * Currently returns realistic placeholder content.
- * When API keys are available, replace the body of each generator
- * with actual Claude/OpenAI calls using the same MarketContext.
- */
 export async function generateAnalysis(
   context: MarketContext,
   type: AnalysisType,
 ): Promise<AnalysisResult> {
-  // TODO: Replace with real AI call when keys are available:
-  //
-  // import Anthropic from '@anthropic-ai/sdk';
-  // const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-  // const response = await client.messages.create({
-  //   model: 'claude-sonnet-4-20250514',
-  //   max_tokens: 1024,
-  //   system: buildSystemPrompt(type),
-  //   messages: [{ role: 'user', content: buildUserPrompt(context, type) }],
-  // });
+  const client = getClaudeClient();
 
-  switch (type) {
-    case AnalysisType.MARKET_OVERVIEW:
-      return generateMarketOverview(context);
-    case AnalysisType.ENTRY_ANALYSIS:
-      return generateEntryAnalysis(context);
-    case AnalysisType.EXIT_ANALYSIS:
-      return generateExitAnalysis(context);
-    case AnalysisType.RISK_ASSESSMENT:
-      return generateRiskAssessment(context);
+  // Use Claude AI when available
+  if (client) {
+    try {
+      return await generateWithClaude(client, context, type);
+    } catch (error) {
+      console.error('[KB Analyzer] Claude error, falling back to deterministic:', error);
+    }
   }
+
+  // Fallback: deterministic analysis
+  return generateDeterministic(context, type);
 }
 
 // ============================================================================
-// Placeholder Generators (realistic, useful output)
+// Claude AI Analysis
 // ============================================================================
 
-function generateMarketOverview(ctx: MarketContext): AnalysisResult {
+async function generateWithClaude(
+  client: Anthropic,
+  ctx: MarketContext,
+  type: AnalysisType,
+): Promise<AnalysisResult> {
+  const systemPrompt = buildSystemPrompt(type);
+  const userPrompt = buildUserPrompt(ctx, type);
+
+  const response = await client.messages.create({
+    model: CLAUDE_MODEL,
+    max_tokens: 1024,
+    system: systemPrompt,
+    messages: [{ role: 'user', content: userPrompt }],
+  });
+
+  const textBlock = response.content.find(c => c.type === 'text');
+  const rawContent = textBlock?.text ?? '';
+
+  // Parse structured data from Claude response
+  const structured = parseStructuredResponse(rawContent, ctx, type);
+
+  // Cost: Sonnet 4.6 pricing ($3/M input, $15/M output)
+  const costUsd = (response.usage.input_tokens * 3 + response.usage.output_tokens * 15) / 1_000_000;
+
+  return {
+    content: structured.content,
+    confidence: structured.confidence,
+    dataPointsUsed: buildDataPoints(ctx),
+    structuredData: structured.structuredData,
+    tokensUsed: response.usage.input_tokens + response.usage.output_tokens,
+    estimatedCostUsd: costUsd,
+    generatedAt: new Date().toISOString(),
+  };
+}
+
+function buildSystemPrompt(type: AnalysisType): string {
+  const base = `Sei l'analista AI di Elio.Market, piattaforma di trading su prediction markets (Polymarket).
+Rispondi SEMPRE in italiano. Sii preciso, conciso, e quantitativo.
+Formatta in markdown. Includi disclaimer sui rischi finanziari.`;
+
+  switch (type) {
+    case AnalysisType.MARKET_OVERVIEW:
+      return `${base}
+Genera una panoramica completa del mercato. Includi: sentiment, fattori chiave, rischi, opportunita.
+Alla fine, rispondi con un blocco JSON (tra \`\`\`json e \`\`\`) con questa struttura:
+{"sentiment":"bullish|bearish|neutral","keyFactors":["..."],"risks":["..."],"opportunities":["..."],"confidence":0-100}`;
+
+    case AnalysisType.ENTRY_ANALYSIS:
+      return `${base}
+Analizza se vale la pena entrare in questo mercato. Specifica direzione (YES/NO), edge stimato, rischi.
+Alla fine, rispondi con un blocco JSON:
+{"sentiment":"bullish|bearish|neutral","keyFactors":["..."],"risks":["..."],"opportunities":["..."],"confidence":0-100}`;
+
+    case AnalysisType.EXIT_ANALYSIS:
+      return `${base}
+Analizza se conviene uscire dalla posizione o restare. Motiva la raccomandazione.
+Alla fine, rispondi con un blocco JSON:
+{"sentiment":"bullish|bearish|neutral","keyFactors":["..."],"risks":["..."],"opportunities":["..."],"confidence":0-100}`;
+
+    case AnalysisType.RISK_ASSESSMENT:
+      return `${base}
+Valuta i rischi di questo mercato: liquidita, tempo, volatilita, rischio complessivo. Usa livelli ALTO/MEDIO/BASSO.
+Alla fine, rispondi con un blocco JSON:
+{"sentiment":"bullish|bearish|neutral","keyFactors":["..."],"risks":["..."],"opportunities":["..."],"confidence":0-100}`;
+
+    case AnalysisType.CATALYST_DETECTION:
+      return `${base}
+Analizza se questo mercato ha un CATALIZZATORE noto — un evento specifico (elezione, report, scadenza legale, decisione giudiziaria, votazione, lancio prodotto) che forzera' la risoluzione del mercato.
+NON considerare catalizzatori vaghi come "il tempo passera'" o "il mercato si risolvera'".
+Rispondi SOLO con un blocco JSON:
+{"hasCatalyst":true|false,"catalystDescription":"descrizione evento specifico o null","confidence":0-100,"sentiment":"bullish|bearish|neutral","keyFactors":["..."],"risks":["..."],"opportunities":["..."]}`;
+  }
+}
+
+function buildUserPrompt(ctx: MarketContext, _type: AnalysisType): string {
+  const yesPrice = ctx.outcomePrices[0] ?? 0.5;
+  const daysToExpiry = Math.max(0, Math.ceil((new Date(ctx.endDate).getTime() - Date.now()) / 86400000));
+
+  return `Mercato: ${ctx.marketName}
+Categoria: ${ctx.category}
+Descrizione: ${ctx.description}
+Esiti: ${ctx.outcomes.join(' vs ')}
+Prezzo YES: ${(yesPrice * 100).toFixed(1)}%
+Volume 24h: $${ctx.volume24h.toLocaleString()}
+Volume totale: $${ctx.totalVolume.toLocaleString()}
+Liquidita: $${ctx.liquidity.toLocaleString()}
+Scadenza: ${ctx.endDate} (${daysToExpiry} giorni)`;
+}
+
+function parseStructuredResponse(
+  raw: string,
+  ctx: MarketContext,
+  type: AnalysisType,
+): { content: string; structuredData: AnalysisStructuredData; confidence: number } {
+  // Extract JSON block from response
+  const jsonMatch = raw.match(/```json\s*([\s\S]*?)\s*```/);
+
+  let structuredData: AnalysisStructuredData = {
+    sentiment: 'neutral',
+    keyFactors: [],
+    risks: [],
+    opportunities: [],
+  };
+  let confidence = 50;
+
+  if (jsonMatch) {
+    try {
+      const parsed = JSON.parse(jsonMatch[1]);
+      structuredData = {
+        sentiment: parsed.sentiment ?? 'neutral',
+        keyFactors: parsed.keyFactors ?? [],
+        risks: parsed.risks ?? [],
+        opportunities: parsed.opportunities ?? [],
+        hasCatalyst: parsed.hasCatalyst,
+        catalystDescription: parsed.catalystDescription,
+      };
+      confidence = parsed.confidence ?? 50;
+    } catch {
+      // JSON parse failed, use defaults
+    }
+  }
+
+  // Clean content: remove JSON block for display
+  const content = raw.replace(/```json[\s\S]*?```/, '').trim();
+
+  return { content, structuredData, confidence };
+}
+
+function buildDataPoints(ctx: MarketContext): DataPoint[] {
+  const yesPrice = ctx.outcomePrices[0] ?? 0.5;
+  const daysToExpiry = Math.max(0, Math.ceil((new Date(ctx.endDate).getTime() - Date.now()) / 86400000));
+
+  return [
+    { label: 'Prezzo YES', value: `${(yesPrice * 100).toFixed(1)}%`, source: 'Polymarket' },
+    { label: 'Volume totale', value: `$${ctx.totalVolume.toLocaleString()}`, source: 'Polymarket' },
+    { label: 'Volume 24h', value: `$${ctx.volume24h.toLocaleString()}`, source: 'Polymarket' },
+    { label: 'Liquidita', value: `$${ctx.liquidity.toLocaleString()}`, source: 'Polymarket' },
+    { label: 'Giorni a scadenza', value: String(daysToExpiry), source: 'calcolato' },
+  ];
+}
+
+// ============================================================================
+// Deterministic Fallback (no API key)
+// ============================================================================
+
+function generateDeterministic(ctx: MarketContext, type: AnalysisType): AnalysisResult {
   const yesPrice = ctx.outcomePrices[0] ?? 0.5;
   const sentiment = yesPrice > 0.65 ? 'bullish' : yesPrice < 0.35 ? 'bearish' : 'neutral';
   const daysToExpiry = Math.max(0, Math.ceil((new Date(ctx.endDate).getTime() - Date.now()) / 86400000));
+
+  if (type === AnalysisType.CATALYST_DETECTION) {
+    return {
+      content: 'Catalyst detection non disponibile senza API key AI.',
+      confidence: 0,
+      dataPointsUsed: buildDataPoints(ctx),
+      structuredData: {
+        sentiment: 'neutral',
+        keyFactors: [],
+        risks: ['API AI non configurata'],
+        opportunities: [],
+        hasCatalyst: false,
+        catalystDescription: undefined,
+      },
+      tokensUsed: 0,
+      estimatedCostUsd: 0,
+      generatedAt: new Date().toISOString(),
+    };
+  }
+
   const volumeStr = ctx.totalVolume >= 1_000_000
     ? `$${(ctx.totalVolume / 1_000_000).toFixed(1)}M`
     : `$${(ctx.totalVolume / 1_000).toFixed(0)}K`;
 
-  const sentimentLabel = sentiment === 'bullish' ? 'rialzista' : sentiment === 'bearish' ? 'ribassista' : 'neutrale';
-
-  const content = [
-    `**Panoramica mercato: ${ctx.marketName}**`,
-    '',
-    `Il mercato attualmente prezza "${ctx.outcomes[0] ?? 'Yes'}" al ${(yesPrice * 100).toFixed(1)}%, con un volume totale di ${volumeStr} e liquidita di $${(ctx.liquidity / 1_000).toFixed(0)}K.`,
-    '',
-    `**Sentiment**: ${sentimentLabel.charAt(0).toUpperCase() + sentimentLabel.slice(1)}. Il consensus di mercato ${yesPrice > 0.65 ? 'favorisce fortemente l\'esito positivo' : yesPrice < 0.35 ? 'ritiene improbabile l\'esito positivo' : 'e diviso sull\'esito'}.`,
-    '',
-    `**Scadenza**: ${daysToExpiry} giorni rimanenti. ${daysToExpiry < 7 ? 'Prossimita alla scadenza: i movimenti di prezzo saranno piu accentuati.' : daysToExpiry < 30 ? 'Tempo sufficiente per movimenti significativi.' : 'Orizzonte lungo, prezzo soggetto a fluttuazioni.'}`,
-    '',
-    `**Volume 24h**: $${(ctx.volume24h / 1_000).toFixed(0)}K — ${ctx.volume24h > 50_000 ? 'alta attivita, mercato liquido' : ctx.volume24h > 10_000 ? 'attivita moderata' : 'bassa attivita, possibile slippage elevato'}.`,
-    '',
-    `**Pro**: ${yesPrice > 0.5 ? 'Il mercato sta consolidando una direzione chiara, utile per strategie trend-following.' : 'Prezzo vicino al 50%, possibile valore in entrambe le direzioni.'}`,
-    `**Contro**: ${daysToExpiry < 3 ? 'Troppo vicino alla scadenza per operazioni strutturate.' : ctx.volume24h < 5_000 ? 'Volume basso, rischio liquidita.' : 'Nessun segnale di allarme critico al momento.'}`,
-  ].join('\n');
-
-  const dataPoints: DataPoint[] = [
-    { label: 'Prezzo YES', value: `${(yesPrice * 100).toFixed(1)}%`, source: 'Polymarket' },
-    { label: 'Volume totale', value: volumeStr, source: 'Polymarket' },
-    { label: 'Volume 24h', value: `$${ctx.volume24h.toFixed(0)}`, source: 'Polymarket' },
-    { label: 'Liquidita', value: `$${ctx.liquidity.toFixed(0)}`, source: 'Polymarket' },
-    { label: 'Giorni a scadenza', value: String(daysToExpiry), source: 'calcolato' },
-  ];
+  const content = buildDeterministicContent(ctx, type, yesPrice, daysToExpiry, volumeStr);
 
   return {
     content,
     confidence: calculateConfidence(ctx),
-    dataPointsUsed: dataPoints,
+    dataPointsUsed: buildDataPoints(ctx),
     structuredData: {
       sentiment,
       keyFactors: [
@@ -153,140 +300,54 @@ function generateMarketOverview(ctx: MarketContext): AnalysisResult {
   };
 }
 
-function generateEntryAnalysis(ctx: MarketContext): AnalysisResult {
-  const yesPrice = ctx.outcomePrices[0] ?? 0.5;
-  const daysToExpiry = Math.max(0, Math.ceil((new Date(ctx.endDate).getTime() - Date.now()) / 86400000));
-  const edgeEstimate = yesPrice > 0.5 ? (yesPrice - 0.5) * 100 : (0.5 - yesPrice) * 100;
-  const direction = yesPrice > 0.5 ? 'YES' : 'NO';
-
-  const content = [
-    `**Analisi ingresso: ${ctx.marketName}**`,
-    '',
-    `**Direzione suggerita**: ${direction} @ ${(yesPrice * 100).toFixed(1)}%`,
-    '',
-    `**Perche entrare**:`,
-    `- Il mercato mostra ${ctx.volume24h > 20_000 ? 'buona liquidita' : 'liquidita accettabile'} con volume 24h di $${(ctx.volume24h / 1_000).toFixed(1)}K`,
-    `- Edge stimato: ~${edgeEstimate.toFixed(1)}% rispetto al prezzo 50/50`,
-    `- ${daysToExpiry > 14 ? 'Tempo sufficiente per convergenza al valore reale' : daysToExpiry > 3 ? 'Finestra di opportunita limitata ma sufficiente' : 'Ingresso rischioso: troppo vicino alla scadenza'}`,
-    '',
-    `**Rischi principali**:`,
-    `- ${ctx.volume24h < 10_000 ? 'Volume basso: possibile difficolta in uscita' : 'Volatilita di mercato: il prezzo puo muoversi rapidamente'}`,
-    `- ${daysToExpiry < 7 ? 'Scadenza imminente: risk/reward sfavorevole' : 'Evento imprevisto potrebbe ribaltare il sentiment'}`,
-    `- Slippage stimato: ${ctx.liquidity > 50_000 ? '0.5-1%' : '1-3%'}`,
-    '',
-    `**Stake suggerito**: ${edgeEstimate > 10 ? 'Tier 1 (alto)' : edgeEstimate > 5 ? 'Tier 2 (medio)' : 'Tier 3 (basso)'} — proporzionato all\'edge.`,
-  ].join('\n');
-
-  return {
-    content,
-    confidence: calculateConfidence(ctx),
-    dataPointsUsed: [
-      { label: 'Prezzo corrente', value: `${(yesPrice * 100).toFixed(1)}%`, source: 'Polymarket' },
-      { label: 'Edge stimato', value: `${edgeEstimate.toFixed(1)}%`, source: 'calcolato' },
-      { label: 'Liquidita', value: `$${ctx.liquidity.toFixed(0)}`, source: 'Polymarket' },
-    ],
-    structuredData: {
-      sentiment: yesPrice > 0.6 ? 'bullish' : yesPrice < 0.4 ? 'bearish' : 'neutral',
-      keyFactors: [`Direzione: ${direction}`, `Edge stimato: ${edgeEstimate.toFixed(1)}%`],
-      risks: buildRisks(ctx, daysToExpiry),
-      opportunities: [`Ingresso ${direction} a ${(yesPrice * 100).toFixed(1)}%`],
-    },
-    tokensUsed: 0,
-    estimatedCostUsd: 0,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-function generateExitAnalysis(ctx: MarketContext): AnalysisResult {
-  const yesPrice = ctx.outcomePrices[0] ?? 0.5;
-  const daysToExpiry = Math.max(0, Math.ceil((new Date(ctx.endDate).getTime() - Date.now()) / 86400000));
-
-  const content = [
-    `**Analisi uscita: ${ctx.marketName}**`,
-    '',
-    `**Prezzo attuale**: ${(yesPrice * 100).toFixed(1)}%`,
-    '',
-    `**Perche uscire adesso**:`,
-    `- ${yesPrice > 0.85 || yesPrice < 0.15 ? 'Prezzo vicino all\'estremo — margine di profitto residuo limitato' : 'Prezzo in zona intermedia — rischio di reversal presente'}`,
-    `- ${daysToExpiry < 3 ? 'Scadenza imminente: meglio consolidare il profitto' : 'Possibilita di lock-in del profitto attuale'}`,
-    '',
-    `**Perche rimanere**:`,
-    `- ${daysToExpiry > 7 ? 'Tempo sufficiente per ulteriore convergenza' : 'Se la posizione e profittevole, lo slippage e minimo'}`,
-    `- ${ctx.volume24h > 30_000 ? 'Alta liquidita: uscita rapida sempre possibile' : 'Liquidita moderata: pianificare uscita graduale'}`,
-    '',
-    `**Raccomandazione**: ${daysToExpiry < 2 ? 'Uscita completa consigliata' : yesPrice > 0.9 || yesPrice < 0.1 ? 'Uscita parziale (50%) per lock-in profitto' : 'Monitorare, uscita non urgente'}`,
-  ].join('\n');
-
-  return {
-    content,
-    confidence: calculateConfidence(ctx),
-    dataPointsUsed: [
-      { label: 'Prezzo corrente', value: `${(yesPrice * 100).toFixed(1)}%`, source: 'Polymarket' },
-      { label: 'Giorni a scadenza', value: String(daysToExpiry), source: 'calcolato' },
-    ],
-    structuredData: {
-      sentiment: 'neutral',
-      keyFactors: [`Prezzo: ${(yesPrice * 100).toFixed(1)}%`, `Scadenza: ${daysToExpiry}gg`],
-      risks: [`Reversal improvviso`, `Slippage in uscita`],
-      opportunities: [`Lock-in profitto`, `Riallocazione capitale`],
-    },
-    tokensUsed: 0,
-    estimatedCostUsd: 0,
-    generatedAt: new Date().toISOString(),
-  };
-}
-
-function generateRiskAssessment(ctx: MarketContext): AnalysisResult {
-  const yesPrice = ctx.outcomePrices[0] ?? 0.5;
-  const daysToExpiry = Math.max(0, Math.ceil((new Date(ctx.endDate).getTime() - Date.now()) / 86400000));
-
-  const liquidityRisk = ctx.liquidity < 10_000 ? 'ALTO' : ctx.liquidity < 50_000 ? 'MEDIO' : 'BASSO';
-  const timeRisk = daysToExpiry < 3 ? 'ALTO' : daysToExpiry < 14 ? 'MEDIO' : 'BASSO';
-  const volatilityRisk = ctx.volume24h > ctx.totalVolume * 0.1 ? 'ALTO' : ctx.volume24h > ctx.totalVolume * 0.03 ? 'MEDIO' : 'BASSO';
-  const overallRisk = [liquidityRisk, timeRisk, volatilityRisk].filter(r => r === 'ALTO').length >= 2 ? 'ALTO'
-    : [liquidityRisk, timeRisk, volatilityRisk].filter(r => r === 'ALTO').length >= 1 ? 'MEDIO'
-    : 'BASSO';
-
-  const content = [
-    `**Valutazione rischio: ${ctx.marketName}**`,
-    '',
-    `| Fattore | Livello |`,
-    `|---|---|`,
-    `| Liquidita | ${liquidityRisk} |`,
-    `| Tempo alla scadenza | ${timeRisk} |`,
-    `| Volatilita | ${volatilityRisk} |`,
-    `| **Rischio complessivo** | **${overallRisk}** |`,
-    '',
-    `**Dettagli**:`,
-    `- **Liquidita** (${liquidityRisk}): $${(ctx.liquidity / 1_000).toFixed(0)}K disponibili. ${liquidityRisk === 'ALTO' ? 'Operazioni di size significativa impatterebbero il prezzo.' : 'Sufficiente per operazioni standard.'}`,
-    `- **Tempo** (${timeRisk}): ${daysToExpiry} giorni. ${timeRisk === 'ALTO' ? 'Troppo vicino alla scadenza per gestire posizioni complesse.' : 'Margine sufficiente.'}`,
-    `- **Volatilita** (${volatilityRisk}): rapporto volume 24h / totale = ${((ctx.volume24h / Math.max(ctx.totalVolume, 1)) * 100).toFixed(1)}%. ${volatilityRisk === 'ALTO' ? 'Movimenti bruschi probabili.' : 'Mercato relativamente stabile.'}`,
-    '',
-    `**Max drawdown stimato**: ${overallRisk === 'ALTO' ? '15-25%' : overallRisk === 'MEDIO' ? '8-15%' : '3-8%'} del capitale allocato.`,
-    `**Sizing consigliato**: ${overallRisk === 'ALTO' ? 'Max 2% del bankroll' : overallRisk === 'MEDIO' ? 'Max 5% del bankroll' : 'Fino al 10% del bankroll'}.`,
-  ].join('\n');
-
-  return {
-    content,
-    confidence: calculateConfidence(ctx),
-    dataPointsUsed: [
-      { label: 'Liquidita', value: `$${ctx.liquidity.toFixed(0)}`, source: 'Polymarket' },
-      { label: 'Volume 24h', value: `$${ctx.volume24h.toFixed(0)}`, source: 'Polymarket' },
-      { label: 'Giorni a scadenza', value: String(daysToExpiry), source: 'calcolato' },
-      { label: 'Rischio liquidita', value: liquidityRisk, source: 'calcolato' },
-      { label: 'Rischio tempo', value: timeRisk, source: 'calcolato' },
-      { label: 'Rischio volatilita', value: volatilityRisk, source: 'calcolato' },
-    ],
-    structuredData: {
-      sentiment: 'neutral',
-      keyFactors: [`Rischio: ${overallRisk}`, `Liquidita: ${liquidityRisk}`, `Tempo: ${timeRisk}`],
-      risks: buildRisks(ctx, daysToExpiry),
-      opportunities: [`Sizing adeguato per risk/reward`],
-    },
-    tokensUsed: 0,
-    estimatedCostUsd: 0,
-    generatedAt: new Date().toISOString(),
-  };
+function buildDeterministicContent(
+  ctx: MarketContext,
+  type: AnalysisType,
+  yesPrice: number,
+  daysToExpiry: number,
+  volumeStr: string,
+): string {
+  switch (type) {
+    case AnalysisType.MARKET_OVERVIEW: {
+      const sentimentLabel = yesPrice > 0.65 ? 'rialzista' : yesPrice < 0.35 ? 'ribassista' : 'neutrale';
+      return [
+        `**Panoramica mercato: ${ctx.marketName}**`,
+        '',
+        `Il mercato prezza "${ctx.outcomes[0] ?? 'Yes'}" al ${(yesPrice * 100).toFixed(1)}%, volume totale ${volumeStr}.`,
+        `**Sentiment**: ${sentimentLabel}. **Scadenza**: ${daysToExpiry} giorni.`,
+        `**Volume 24h**: $${(ctx.volume24h / 1_000).toFixed(0)}K — ${ctx.volume24h > 50_000 ? 'alta attivita' : 'attivita moderata'}.`,
+      ].join('\n');
+    }
+    case AnalysisType.ENTRY_ANALYSIS: {
+      const direction = yesPrice > 0.5 ? 'YES' : 'NO';
+      const edge = Math.abs(yesPrice - 0.5) * 100;
+      return [
+        `**Analisi ingresso: ${ctx.marketName}**`,
+        '',
+        `**Direzione**: ${direction} @ ${(yesPrice * 100).toFixed(1)}%`,
+        `**Edge stimato**: ~${edge.toFixed(1)}%`,
+        `**Rischio**: ${daysToExpiry < 3 ? 'ALTO — scadenza imminente' : 'MODERATO'}`,
+      ].join('\n');
+    }
+    case AnalysisType.EXIT_ANALYSIS:
+      return [
+        `**Analisi uscita: ${ctx.marketName}**`,
+        '',
+        `**Prezzo**: ${(yesPrice * 100).toFixed(1)}%. **Scadenza**: ${daysToExpiry}gg.`,
+        `**Raccomandazione**: ${daysToExpiry < 2 ? 'Uscita completa' : yesPrice > 0.9 ? 'Uscita parziale' : 'Monitorare'}`,
+      ].join('\n');
+    case AnalysisType.RISK_ASSESSMENT: {
+      const liqRisk = ctx.liquidity < 10_000 ? 'ALTO' : ctx.liquidity < 50_000 ? 'MEDIO' : 'BASSO';
+      const timeRisk = daysToExpiry < 3 ? 'ALTO' : daysToExpiry < 14 ? 'MEDIO' : 'BASSO';
+      return [
+        `**Rischio: ${ctx.marketName}**`,
+        '',
+        `Liquidita: ${liqRisk} | Tempo: ${timeRisk} | Volume 24h: $${(ctx.volume24h / 1_000).toFixed(0)}K`,
+      ].join('\n');
+    }
+    default:
+      return `Analisi non disponibile per tipo ${type}`;
+  }
 }
 
 // ============================================================================
@@ -295,43 +356,34 @@ function generateRiskAssessment(ctx: MarketContext): AnalysisResult {
 
 function calculateConfidence(ctx: MarketContext): number {
   let confidence = 50;
-
-  // More volume = higher confidence
   if (ctx.totalVolume > 1_000_000) confidence += 15;
   else if (ctx.totalVolume > 100_000) confidence += 10;
   else if (ctx.totalVolume > 10_000) confidence += 5;
-
-  // More liquidity = higher confidence
   if (ctx.liquidity > 100_000) confidence += 10;
   else if (ctx.liquidity > 20_000) confidence += 5;
-
-  // Recent activity = higher confidence
   if (ctx.volume24h > 50_000) confidence += 10;
   else if (ctx.volume24h > 10_000) confidence += 5;
-
-  // Clear direction = higher confidence
   const yesPrice = ctx.outcomePrices[0] ?? 0.5;
   const distFrom50 = Math.abs(yesPrice - 0.5);
   if (distFrom50 > 0.3) confidence += 10;
   else if (distFrom50 > 0.15) confidence += 5;
-
   return Math.min(95, Math.max(20, confidence));
 }
 
 function buildRisks(ctx: MarketContext, daysToExpiry: number): string[] {
   const risks: string[] = [];
-  if (ctx.liquidity < 10_000) risks.push('Liquidita molto bassa: rischio slippage elevato');
-  if (daysToExpiry < 3) risks.push('Scadenza imminente: movimento prezzo imprevedibile');
-  if (ctx.volume24h < 5_000) risks.push('Volume 24h basso: mercato poco attivo');
-  if (risks.length === 0) risks.push('Nessun rischio critico identificato');
+  if (ctx.liquidity < 10_000) risks.push('Liquidita molto bassa');
+  if (daysToExpiry < 3) risks.push('Scadenza imminente');
+  if (ctx.volume24h < 5_000) risks.push('Volume 24h basso');
+  if (risks.length === 0) risks.push('Nessun rischio critico');
   return risks;
 }
 
 function buildOpportunities(ctx: MarketContext, yesPrice: number, daysToExpiry: number): string[] {
   const opps: string[] = [];
-  if (yesPrice > 0.4 && yesPrice < 0.6) opps.push('Prezzo indeciso: potenziale edge se si ha informazione');
-  if (ctx.volume24h > 50_000) opps.push('Alta liquidita: esecuzione efficiente');
-  if (daysToExpiry > 14 && daysToExpiry < 60) opps.push('Finestra temporale ideale per convergenza');
-  if (opps.length === 0) opps.push('Monitorare per opportunita future');
+  if (yesPrice > 0.4 && yesPrice < 0.6) opps.push('Prezzo indeciso: potenziale edge');
+  if (ctx.volume24h > 50_000) opps.push('Alta liquidita');
+  if (daysToExpiry > 14 && daysToExpiry < 60) opps.push('Finestra temporale ideale');
+  if (opps.length === 0) opps.push('Monitorare');
   return opps;
 }
