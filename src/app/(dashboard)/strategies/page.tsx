@@ -161,9 +161,10 @@ export default function StrategiesPage() {
   const handleRunPipeline = useCallback(async (code: string) => {
     setRunningPipeline(prev => new Set(prev).add(code));
     try {
-      const res = await fetch(`/api/backtest/pipeline/${code}`, {
+      const res = await fetch('/api/backtest/run-single', {
         method: 'POST',
-        headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_CRON_SECRET ?? ''}` },
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code }),
       });
       if (res.ok) {
         // Refresh strategies data
