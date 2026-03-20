@@ -294,10 +294,35 @@ export class PaperTradingManager {
       if (row.status === 'paused') pausedSessions++;
     }
 
+    // Calculate today's P&L from yesterday's equity snapshot
+    let totalPnlToday = 0;
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().split('T')[0];
+
+    const sessionIds = sessionRows.map((r: { id: string }) => r.id);
+    const { data: yesterdaySnapshots } = await db
+      .from('equity_snapshots')
+      .select('session_id, capital')
+      .in('session_id', sessionIds)
+      .eq('snapshot_date', yesterdayStr);
+
+    if (yesterdaySnapshots && yesterdaySnapshots.length > 0) {
+      const snapMap = new Map(
+        yesterdaySnapshots.map((s: { session_id: string; capital: number }) => [s.session_id, s.capital]),
+      );
+      for (const row of sessionRows) {
+        const yesterdayCapital = snapMap.get(row.id);
+        if (yesterdayCapital !== undefined) {
+          totalPnlToday += row.current_capital - yesterdayCapital;
+        }
+      }
+    }
+
     return {
       totalCapital,
       totalPnl,
-      totalPnlToday: 0, // Calcolato da trade di oggi
+      totalPnlToday,
       activeSessions,
       pausedSessions,
       totalOpenPositions,

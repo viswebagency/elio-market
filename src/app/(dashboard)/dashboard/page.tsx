@@ -146,9 +146,11 @@ export default function DashboardPage() {
           subColor={pnlColor}
         />
         <MetricCard
-          label="P&L totale"
-          value={`${pnlSign}$${Math.abs(data?.totalPnl ?? 0).toFixed(2)}`}
-          valueColor={pnlColor}
+          label="P&L oggi"
+          value={`${(data?.totalPnlToday ?? 0) >= 0 ? '+' : ''}$${Math.abs(data?.totalPnlToday ?? 0).toFixed(2)}`}
+          valueColor={(data?.totalPnlToday ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}
+          sub={`Totale: ${pnlSign}$${Math.abs(data?.totalPnl ?? 0).toFixed(2)}`}
+          subColor={pnlColor}
         />
         <MetricCard
           label="Strategie attive"

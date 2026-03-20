@@ -9,6 +9,10 @@
       "schedule": "0 * * * *"
     },
     {
+      "path": "/api/cron/equity-snapshot",
+      "schedule": "55 21 * * *"
+    },
+    {
       "path": "/api/cron/daily-summary",
       "schedule": "0 22 * * *"
     }

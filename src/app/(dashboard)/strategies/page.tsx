@@ -73,15 +73,24 @@ const RISK_LABELS: Record<string, string> = {
 export default function StrategiesPage() {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [apiStrategies, setApiStrategies] = useState<ApiStrategy[]>([]);
+  const [equityCurves, setEquityCurves] = useState<Record<string, { timestamp: string; equity: number }[]>>({});
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    async function fetchStrategies() {
+    async function fetchData() {
       try {
-        const res = await fetch('/api/strategies');
-        const json = await res.json();
-        if (json.ok && json.strategies) {
-          setApiStrategies(json.strategies);
+        const [stratRes, equityRes] = await Promise.all([
+          fetch('/api/strategies'),
+          fetch('/api/strategies/equity?days=90'),
+        ]);
+        const stratJson = await stratRes.json();
+        const equityJson = await equityRes.json();
+
+        if (stratJson.ok && stratJson.strategies) {
+          setApiStrategies(stratJson.strategies);
+        }
+        if (equityJson.ok && equityJson.curves) {
+          setEquityCurves(equityJson.curves);
         }
       } catch {
         // Keep empty state
@@ -89,7 +98,7 @@ export default function StrategiesPage() {
         setLoading(false);
       }
     }
-    fetchStrategies();
+    fetchData();
   }, []);
 
   const strategies: StrategyRow[] = useMemo(() => {
@@ -101,9 +110,9 @@ export default function StrategiesPage() {
       mode: (s.mode === 'paper' ? 'paper' : s.mode === 'live' ? 'live' : 'observation') as StrategyMode,
       isActive: s.isActive,
       metrics: s.metrics,
-      equityCurve: [], // No equity curve data yet
+      equityCurve: equityCurves[s.id] ?? [],
     }));
-  }, [apiStrategies]);
+  }, [apiStrategies, equityCurves]);
 
   const selectedStrategies = useMemo(
     () => strategies.filter((s) => selectedIds.includes(s.id)),
