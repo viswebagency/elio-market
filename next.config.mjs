@@ -42,7 +42,7 @@ const nextConfig = {
 
   // Experimental features
   experimental: {
-    serverComponentsExternalPackages: ['pg'],
+    serverComponentsExternalPackages: ['pg', 'ccxt'],
   },
 
   // Webpack config for pg module

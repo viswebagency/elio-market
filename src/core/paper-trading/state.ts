@@ -131,6 +131,10 @@ export interface PaperSessionDbRow {
   is_circuit_broken: boolean;
   circuit_broken_reason: string | null;
   circuit_broken_at: string | null;
+  cooldown_until: string | null;
+  auto_rotation_count: number;
+  max_auto_rotations: number;
+  parent_session_id: string | null;
   started_at: string;
   stopped_at: string | null;
   created_at: string;

@@ -5,6 +5,8 @@ import {
   MinVolumeParams,
   MaxExpiryParams,
   CatalystParams,
+  PriceChangePctParams,
+  VolatilityRangeParams,
   ParsedStrategy,
   ExitRule,
 } from './dsl-parser';
@@ -22,6 +24,12 @@ export interface MarketSnapshot {
   status: 'open' | 'closed' | 'suspended' | 'settled' | 'expired';
   /** Reference date for expiry calculation (backtest mode). Defaults to now. */
   referenceDate?: Date;
+  /** Crypto: 24h price change percentage */
+  priceChange24hPct?: number;
+  /** Crypto: 24h high */
+  high24h?: number;
+  /** Crypto: 24h low */
+  low24h?: number;
 }
 
 export interface ConditionResult {
@@ -137,6 +145,50 @@ function evaluateCatalyst(params: CatalystParams, hasCatalyst: boolean, catalyst
   };
 }
 
+function evaluatePriceChangePct(params: PriceChangePctParams, changePct: number | undefined): ConditionResult {
+  if (changePct === undefined) {
+    return { ruleId: 'price_change_pct', passed: false, score: 0, detail: 'Dati price change non disponibili' };
+  }
+  const passed = changePct >= params.minChangePct && changePct <= params.maxChangePct;
+  const range = params.maxChangePct - params.minChangePct;
+  const midpoint = (params.minChangePct + params.maxChangePct) / 2;
+  const score = passed ? Math.round(100 * (1 - Math.abs(changePct - midpoint) / (range / 2 || 1))) : 0;
+
+  return {
+    ruleId: 'price_change_pct',
+    passed,
+    score: Math.max(0, score),
+    detail: passed
+      ? `Price change ${changePct.toFixed(1)}% nel range [${params.minChangePct}%, ${params.maxChangePct}%] (score: ${score})`
+      : `Price change ${changePct.toFixed(1)}% fuori range [${params.minChangePct}%, ${params.maxChangePct}%]`,
+  };
+}
+
+function evaluateVolatilityRange(params: VolatilityRangeParams, market: MarketSnapshot): ConditionResult {
+  const high = market.high24h;
+  const low = market.low24h;
+  const price = market.price;
+
+  if (high === undefined || low === undefined || price <= 0) {
+    return { ruleId: 'volatility_range', passed: false, score: 0, detail: 'Dati volatilita non disponibili' };
+  }
+
+  const volPct = ((high - low) / price) * 100;
+  const passed = volPct >= params.minVolPct && volPct <= params.maxVolPct;
+  const range = params.maxVolPct - params.minVolPct;
+  const midpoint = (params.minVolPct + params.maxVolPct) / 2;
+  const score = passed ? Math.round(100 * (1 - Math.abs(volPct - midpoint) / (range / 2 || 1))) : 0;
+
+  return {
+    ruleId: 'volatility_range',
+    passed,
+    score: Math.max(0, score),
+    detail: passed
+      ? `Volatilita 24h ${volPct.toFixed(1)}% nel range [${params.minVolPct}%, ${params.maxVolPct}%] (score: ${score})`
+      : `Volatilita 24h ${volPct.toFixed(1)}% fuori range [${params.minVolPct}%, ${params.maxVolPct}%]`,
+  };
+}
+
 function evaluateEntryCondition(params: EntryRuleParams, market: MarketSnapshot): ConditionResult {
   switch (params.type) {
     case 'price_range':
@@ -147,6 +199,10 @@ function evaluateEntryCondition(params: EntryRuleParams, market: MarketSnapshot)
       return evaluateMaxExpiry(params, market.expiryDate, market.referenceDate);
     case 'catalyst':
       return evaluateCatalyst(params, market.hasCatalyst, market.catalystDescription);
+    case 'price_change_pct':
+      return evaluatePriceChangePct(params, market.priceChange24hPct);
+    case 'volatility_range':
+      return evaluateVolatilityRange(params, market);
   }
 }
 

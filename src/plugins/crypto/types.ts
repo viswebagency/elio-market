@@ -61,3 +61,8 @@ export interface CryptoPosition {
   leverage: number;
   marginType: 'isolated' | 'cross';
 }
+
+export interface CryptoOrderBookEntry {
+  price: number;
+  amount: number;
+}

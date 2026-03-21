@@ -170,6 +170,49 @@ describe('formatDailySummary', () => {
     expect(msg).not.toContain('Miglior trade');
     expect(msg).not.toContain('Peggior trade');
   });
+
+  it('formatta sezioni per area quando presenti', () => {
+    const summary = createTestSummary({
+      polymarket: {
+        pnl: 30,
+        pnlPercent: 3.0,
+        tradesCount: 5,
+        winRate: 0.6,
+        openPositions: 2,
+        totalExposure: 100,
+        bestTrade: { market: 'PM Best', pnl: 15 },
+        worstTrade: { market: 'PM Worst', pnl: -3 },
+      },
+      crypto: {
+        pnl: 12.50,
+        pnlPercent: 1.15,
+        tradesCount: 3,
+        winRate: 0.667,
+        openPositions: 1,
+        totalExposure: 50,
+      },
+    });
+    const msg = formatDailySummary(summary);
+
+    // Area sections
+    expect(msg).toContain('<b>Polymarket</b>');
+    expect(msg).toContain('<b>Crypto</b>');
+    expect(msg).toContain('TOTALE');
+    // Polymarket details
+    expect(msg).toContain('+$30.00');
+    expect(msg).toContain('PM Best');
+    // Crypto details
+    expect(msg).toContain('+$12.50');
+  });
+
+  it('omette sezioni area se non presenti', () => {
+    const summary = createTestSummary();
+    const msg = formatDailySummary(summary);
+
+    expect(msg).not.toContain('<b>Polymarket</b>');
+    expect(msg).not.toContain('<b>Crypto</b>');
+    expect(msg).toContain('TOTALE');
+  });
 });
 
 describe('formatCircuitBreakerAlert', () => {

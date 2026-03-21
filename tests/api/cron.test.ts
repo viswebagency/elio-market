@@ -24,6 +24,12 @@ vi.mock('@/core/paper-trading/manager', () => ({
     tick: mockTick,
     getStatus: mockGetStatus,
   }),
+  POLYMARKET_COOLDOWN_HOURS: 12,
+  MAX_AUTO_ROTATIONS: 3,
+}));
+
+vi.mock('@/core/paper-trading/auto-rotation', () => ({
+  processExpiredCooldowns: vi.fn().mockResolvedValue({ rotated: 0, stopped: 0, errors: [] }),
 }));
 
 // Mock scanner
@@ -135,7 +141,7 @@ describe('GET /api/cron/tick', () => {
     expect(mockSendMessage).toHaveBeenCalled();
   });
 
-  it('sends circuit breaker alert', async () => {
+  it('sends circuit breaker alert with real drawdown values from DB', async () => {
     (verifyCronAuth as any).mockReturnValue(true);
     mockTick.mockResolvedValue([
       {
@@ -151,8 +157,32 @@ describe('GET /api/cron/tick', () => {
       },
     ]);
 
+    // Mock DB chain for fetchCircuitBreakerDetails
+    const mockSingle = vi.fn()
+      .mockResolvedValueOnce({
+        data: {
+          max_drawdown_pct: 12.5,
+          circuit_broken_reason: 'Drawdown 12.5% > limit 10%',
+          strategy_id: 'strat1',
+        },
+        error: null,
+      })
+      .mockResolvedValueOnce({
+        data: { max_drawdown: 10 },
+        error: null,
+      });
+    const mockEq = vi.fn().mockReturnValue({ single: mockSingle });
+    mockFrom.mockReturnValue({
+      select: () => ({ eq: mockEq }),
+    });
+
     await handler(createMockRequest('/api/cron/tick'));
     expect(mockSendCircuitBreakerAlert).toHaveBeenCalled();
+
+    const alertArg = mockSendCircuitBreakerAlert.mock.calls[0][1];
+    expect(alertArg.currentDrawdown).toBe(12.5);
+    expect(alertArg.maxDrawdown).toBe(10);
+    expect(alertArg.action).toContain('Drawdown 12.5%');
   });
 
   it('handles tick errors gracefully', async () => {

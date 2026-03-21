@@ -1,5 +1,5 @@
 /**
- * Crypto plugin — cryptocurrency markets via Binance.
+ * Crypto plugin — cryptocurrency markets via ccxt (Binance + Bybit).
  * Implements the MarketPlugin interface.
  */
 
@@ -10,7 +10,7 @@ import {
 } from '@/core/types/plugin';
 import { NormalizedPrice, NormalizedCandle, NormalizedMarket } from '@/core/types/market-data';
 import { Trade, TradeExecution } from '@/core/types/trade';
-import { CryptoAdapter } from './adapter';
+import { CryptoAdapter, SupportedExchange } from './adapter';
 import { normalizeCryptoTicker, normalizeCryptoCandle, normalizeCryptoToMarket } from './normalizer';
 import { CryptoWebSocket } from './websocket';
 import { CRYPTO_TOP_PAIRS } from './constants';
@@ -31,13 +31,46 @@ export class CryptoPlugin implements MarketPlugin {
     orderManagement: true,
   };
 
-  private adapter: CryptoAdapter | null = null;
+  private adapters: Map<SupportedExchange, CryptoAdapter> = new Map();
+  private primaryExchange: SupportedExchange = 'binance';
   private ws: CryptoWebSocket | null = null;
 
   async initialize(config: PluginConnectionConfig): Promise<void> {
     this.status = 'initializing';
     try {
-      this.adapter = new CryptoAdapter(config.apiKey, config.apiSecret);
+      // Initialize Binance
+      if (config.apiKey) {
+        const binanceAdapter = new CryptoAdapter({
+          exchange: 'binance',
+          apiKey: config.apiKey,
+          apiSecret: config.apiSecret,
+          sandbox: config.extra?.sandbox as boolean | undefined,
+        });
+        await binanceAdapter.loadMarkets();
+        this.adapters.set('binance', binanceAdapter);
+      }
+
+      // Initialize Bybit if credentials provided
+      const bybitKey = config.extra?.bybitApiKey as string | undefined;
+      const bybitSecret = config.extra?.bybitApiSecret as string | undefined;
+      if (bybitKey) {
+        const bybitAdapter = new CryptoAdapter({
+          exchange: 'bybit',
+          apiKey: bybitKey,
+          apiSecret: bybitSecret,
+          sandbox: config.extra?.sandbox as boolean | undefined,
+        });
+        await bybitAdapter.loadMarkets();
+        this.adapters.set('bybit', bybitAdapter);
+      }
+
+      if (this.adapters.size === 0) {
+        // Public-only mode (no auth)
+        const publicAdapter = new CryptoAdapter({ exchange: 'binance' });
+        await publicAdapter.loadMarkets();
+        this.adapters.set('binance', publicAdapter);
+      }
+
       this.ws = new CryptoWebSocket();
       this.status = 'ready';
     } catch (error) {
@@ -49,45 +82,40 @@ export class CryptoPlugin implements MarketPlugin {
   async shutdown(): Promise<void> {
     this.ws?.disconnect();
     this.ws = null;
-    this.adapter = null;
+    this.adapters.clear();
     this.status = 'registered';
   }
 
   async healthCheck(): Promise<boolean> {
-    if (!this.adapter) return false;
-    try {
-      await this.adapter.getTicker('BTCUSDT');
-      return true;
-    } catch { return false; }
+    const adapter = this.getAdapter();
+    if (!adapter) return false;
+    return adapter.ping();
   }
 
   async getPrice(symbol: string): Promise<NormalizedPrice> {
     this.ensureReady();
-    const raw = symbol.replace('CRY:', '');
-    const ticker = await this.adapter!.getTicker(raw);
+    const ccxtSymbol = this.toCcxtSymbol(symbol);
+    const ticker = await this.getAdapter()!.getTicker(ccxtSymbol);
     return normalizeCryptoTicker(ticker);
   }
 
   async getCandles(symbol: string, interval: TimeInterval, limit?: number): Promise<NormalizedCandle[]> {
     this.ensureReady();
-    const raw = symbol.replace('CRY:', '');
-    const intervalMap: Record<string, string> = {
-      '1m': '1m', '5m': '5m', '15m': '15m', '1h': '1h', '4h': '4h', '1d': '1d', '1w': '1w',
-    };
-    const candles = await this.adapter!.getCandles(
-      raw,
-      intervalMap[interval] ?? '1d',
-      limit ?? 100
-    );
-    return candles.map((c) => normalizeCryptoCandle(raw, c, interval));
+    const ccxtSymbol = this.toCcxtSymbol(symbol);
+    const candles = await this.getAdapter()!.getCandles(ccxtSymbol, interval, limit ?? 100);
+    const rawSymbol = ccxtSymbol.replace('/', '');
+    return candles.map((c) => normalizeCryptoCandle(rawSymbol, c, interval));
   }
 
   async getMarkets(_filter?: MarketFilter): Promise<NormalizedMarket[]> {
     this.ensureReady();
+    const adapter = this.getAdapter()!;
     const tickers = await Promise.all(
-      CRYPTO_TOP_PAIRS.map((p) => this.adapter!.getTicker(p))
+      CRYPTO_TOP_PAIRS.map((p) => adapter.getTicker(p).catch(() => null))
     );
-    return tickers.map(normalizeCryptoToMarket);
+    return tickers
+      .filter((t): t is NonNullable<typeof t> => t !== null)
+      .map(normalizeCryptoToMarket);
   }
 
   async subscribe(symbols: string[], callback: (price: NormalizedPrice) => void): Promise<() => void> {
@@ -103,12 +131,35 @@ export class CryptoPlugin implements MarketPlugin {
 
   async placeTrade(_trade: Trade): Promise<TradeExecution> {
     this.ensureReady();
-    throw new Error('Crypto trade execution not yet implemented');
+    throw new Error('Crypto trade execution not yet implemented — paper trading only');
+  }
+
+  /** Get adapter for a specific exchange, or primary */
+  getAdapter(exchange?: SupportedExchange): CryptoAdapter | null {
+    if (exchange) return this.adapters.get(exchange) ?? null;
+    return this.adapters.get(this.primaryExchange) ?? this.adapters.values().next().value ?? null;
+  }
+
+  getAvailableExchanges(): SupportedExchange[] {
+    return [...this.adapters.keys()];
   }
 
   private ensureReady(): void {
-    if (this.status !== 'ready' || !this.adapter) {
+    if (this.status !== 'ready' || this.adapters.size === 0) {
       throw new Error('Crypto plugin not initialized.');
     }
+  }
+
+  /** Convert symbol format: CRY:BTCUSDT -> BTC/USDT, or pass-through if already slashed */
+  private toCcxtSymbol(symbol: string): string {
+    const raw = symbol.replace('CRY:', '');
+    if (raw.includes('/')) return raw;
+    // Detect quote asset
+    for (const quote of ['USDT', 'USDC', 'BTC', 'ETH', 'EUR']) {
+      if (raw.endsWith(quote)) {
+        return `${raw.slice(0, -quote.length)}/${quote}`;
+      }
+    }
+    return raw;
   }
 }

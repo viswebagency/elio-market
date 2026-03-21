@@ -4,6 +4,9 @@
  * Vercel Cron — daily at 21:55 UTC (22:55 CET), just before daily-summary.
  * Saves a snapshot of each paper trading session's capital for equity curve tracking.
  * Also calculates daily P&L by comparing with yesterday's snapshot.
+ *
+ * Covers both Polymarket (paper_sessions → equity_snapshots) and
+ * Crypto (crypto_paper_sessions → paper_trading_snapshots with area='crypto').
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -22,28 +25,24 @@ export async function GET(request: NextRequest) {
     const db = createUntypedAdminClient();
     const today = new Date().toISOString().split('T')[0];
 
-    // Get all running/paused sessions
-    const { data: sessions } = await db
+    let snapshotsCreated = 0;
+    let snapshotsSkipped = 0;
+
+    // -----------------------------------------------------------------
+    // 1. Polymarket sessions → equity_snapshots
+    // -----------------------------------------------------------------
+    const { data: polymarketSessions } = await db
       .from('paper_sessions')
       .select('id, strategy_id, current_capital, initial_capital, realized_pnl, unrealized_pnl, total_pnl, total_pnl_pct, max_drawdown_pct')
       .in('status', ['running', 'paused']);
 
-    if (!sessions || sessions.length === 0) {
-      return NextResponse.json({ ok: true, snapshots: 0 });
-    }
-
-    let snapshotsCreated = 0;
-    let snapshotsSkipped = 0;
-
-    for (const session of sessions) {
-      // Count open positions
+    for (const session of polymarketSessions ?? []) {
       const { count: openPositions } = await db
         .from('paper_positions')
         .select('id', { count: 'exact', head: true })
         .eq('session_id', session.id)
         .eq('status', 'open');
 
-      // Count trades executed today
       const startOfDay = `${today}T00:00:00.000Z`;
       const endOfDay = `${today}T23:59:59.999Z`;
 
@@ -54,12 +53,12 @@ export async function GET(request: NextRequest) {
         .gte('executed_at', startOfDay)
         .lte('executed_at', endOfDay);
 
+      // Include circuit_breaker in P&L calculation (aligned with daily-summary)
       const closedToday = (todayTrades ?? []).filter(
-        (t) => t.action === 'full_close' || t.action === 'partial_close',
+        (t) => t.action === 'full_close' || t.action === 'partial_close' || t.action === 'circuit_breaker',
       );
       const pnlToday = closedToday.reduce((sum, t) => sum + (t.net_pnl ?? 0), 0);
 
-      // Upsert snapshot (idempotent — safe to run multiple times)
       const { error } = await db
         .from('equity_snapshots')
         .upsert(
@@ -81,7 +80,32 @@ export async function GET(request: NextRequest) {
         );
 
       if (error) {
-        console.error(`[Cron/equity-snapshot] ${session.id}: ${error.message}`);
+        console.error(`[Cron/equity-snapshot] polymarket ${session.id}: ${error.message}`);
+        snapshotsSkipped++;
+      } else {
+        snapshotsCreated++;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 2. Crypto sessions → paper_trading_snapshots (area='crypto')
+    // -----------------------------------------------------------------
+    const { data: cryptoSessions } = await db
+      .from('crypto_paper_sessions')
+      .select('id, current_capital, total_pnl_pct, total_pnl, realized_pnl, unrealized_pnl, max_drawdown_pct')
+      .in('status', ['running', 'paused']);
+
+    for (const cs of cryptoSessions ?? []) {
+      const { error } = await db.from('paper_trading_snapshots').insert({
+        session_id: cs.id,
+        area: 'crypto',
+        equity: cs.current_capital,
+        pnl_pct: cs.total_pnl_pct ?? 0,
+        open_positions: 0,
+      });
+
+      if (error) {
+        console.error(`[Cron/equity-snapshot] crypto ${cs.id}: ${error.message}`);
         snapshotsSkipped++;
       } else {
         snapshotsCreated++;

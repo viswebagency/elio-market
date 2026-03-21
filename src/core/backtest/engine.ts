@@ -29,6 +29,12 @@ export interface HistoricalTick {
   status: 'open' | 'closed' | 'suspended' | 'settled' | 'expired';
   /** Outcome finale del mercato: 1 = YES vince, 0 = NO vince, null = non risolto */
   resolvedOutcome: number | null;
+  /** Crypto: 24h price change percentage */
+  priceChange24hPct?: number;
+  /** Crypto: 24h high */
+  high24h?: number;
+  /** Crypto: 24h low */
+  low24h?: number;
 }
 
 export interface HistoricalMarketData {
@@ -228,6 +234,10 @@ export class BacktestEngine {
       category: tick.category,
       status: tick.status,
       referenceDate: new Date(tick.timestamp), // Backtest: use tick time, not real time
+      // Crypto-specific fields
+      priceChange24hPct: tick.priceChange24hPct,
+      high24h: tick.high24h,
+      low24h: tick.low24h,
     };
 
     const evaluation = evaluateEntry(this.strategy, snapshot);

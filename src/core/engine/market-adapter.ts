@@ -86,7 +86,18 @@ export function normalizedToSnapshot(
     catalystDescription: detail?.catalystDescription ?? null,
     category: market.category,
     status: market.status,
+    // Crypto-specific fields (optional)
+    priceChange24hPct: (market as CryptoNormalizedMarket).priceChange24hPct,
+    high24h: (market as CryptoNormalizedMarket).high24h,
+    low24h: (market as CryptoNormalizedMarket).low24h,
   };
+}
+
+/** Extended NormalizedMarket for crypto with additional fields */
+export interface CryptoNormalizedMarket extends NormalizedMarket {
+  priceChange24hPct?: number;
+  high24h?: number;
+  low24h?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -242,6 +253,70 @@ export class BetfairMarketAdapter implements MarketAdapter {
 }
 
 // ---------------------------------------------------------------------------
+// Crypto adapter
+// ---------------------------------------------------------------------------
+
+export class CryptoMarketAdapter implements MarketAdapter {
+  readonly area = MarketArea.CRYPTO;
+
+  async fetchMarkets(filters?: MarketFilters): Promise<NormalizedMarket[]> {
+    const { CryptoPlugin } = await import('@/plugins/crypto/index');
+    const plugin = new CryptoPlugin();
+    await plugin.initialize({});
+
+    const markets = await plugin.getMarkets();
+    const limit = filters?.limit ?? 10;
+
+    return markets.slice(0, limit).map((m): CryptoNormalizedMarket => ({
+      id: m.symbol,
+      name: m.name,
+      price: 0,
+      volume24hUsd: m.volume24h ?? 0,
+      totalVolumeUsd: (m.volume24h ?? 0) * 10,
+      expiryDate: null,
+      category: 'Crypto',
+      area: MarketArea.CRYPTO,
+      status: 'open',
+    }));
+  }
+
+  async fetchMarketDetail(id: string): Promise<NormalizedMarketDetail> {
+    const { CryptoPlugin } = await import('@/plugins/crypto/index');
+    const plugin = new CryptoPlugin();
+    await plugin.initialize({});
+
+    const price = await plugin.getPrice(id);
+
+    return {
+      id,
+      name: id.replace('CRY:', ''),
+      price: price.price,
+      volume24hUsd: price.volume24h ?? 0,
+      totalVolumeUsd: (price.volume24h ?? 0) * 10,
+      expiryDate: null,
+      category: 'Crypto',
+      area: MarketArea.CRYPTO,
+      status: 'open',
+      description: `Cryptocurrency pair ${id}`,
+      hasCatalyst: false,
+      catalystDescription: null,
+      outcomes: ['Up', 'Down'],
+      outcomePrices: [price.price, price.price],
+      liquidity: price.volume24h ?? 0,
+      createdAt: null,
+    };
+  }
+
+  getCommissionRate(): number {
+    return 0.001; // 0.1% typical crypto exchange fee
+  }
+
+  getMinStake(): number {
+    return 10; // $10 minimum
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Adapter registry
 // ---------------------------------------------------------------------------
 
@@ -273,5 +348,8 @@ export function initializeDefaultAdapters(): void {
   }
   if (!adapterRegistry.has(MarketArea.EXCHANGE_BETTING)) {
     registerMarketAdapter(new BetfairMarketAdapter());
+  }
+  if (!adapterRegistry.has(MarketArea.CRYPTO)) {
+    registerMarketAdapter(new CryptoMarketAdapter());
   }
 }

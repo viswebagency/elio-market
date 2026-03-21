@@ -10,7 +10,9 @@ export type EntryRuleParams =
   | PriceRangeParams
   | MinVolumeParams
   | MaxExpiryParams
-  | CatalystParams;
+  | CatalystParams
+  | PriceChangePctParams
+  | VolatilityRangeParams;
 
 export interface PriceRangeParams {
   type: 'price_range';
@@ -31,6 +33,20 @@ export interface MaxExpiryParams {
 export interface CatalystParams {
   type: 'catalyst';
   requiresCatalyst: boolean;
+}
+
+/** Crypto: entry when price change % in 24h is within range (mean reversion / trend) */
+export interface PriceChangePctParams {
+  type: 'price_change_pct';
+  minChangePct: number;
+  maxChangePct: number;
+}
+
+/** Crypto: entry when volatility (24h range as % of price) is within range */
+export interface VolatilityRangeParams {
+  type: 'volatility_range';
+  minVolPct: number;
+  maxVolPct: number;
 }
 
 export interface ExitRule {
@@ -138,6 +154,18 @@ function parseEntryRule(raw: RawEntryRule): EntryRule {
     typedParams = {
       type: 'catalyst',
       requiresCatalyst: params.requires_catalyst as boolean,
+    };
+  } else if ('min_change_pct' in params && 'max_change_pct' in params) {
+    typedParams = {
+      type: 'price_change_pct',
+      minChangePct: params.min_change_pct as number,
+      maxChangePct: params.max_change_pct as number,
+    };
+  } else if ('min_vol_pct' in params && 'max_vol_pct' in params) {
+    typedParams = {
+      type: 'volatility_range',
+      minVolPct: params.min_vol_pct as number,
+      maxVolPct: params.max_vol_pct as number,
     };
   } else {
     throw new Error(`Unknown entry rule params: ${JSON.stringify(params)}`);

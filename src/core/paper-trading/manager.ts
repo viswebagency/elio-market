@@ -26,6 +26,16 @@ import {
 } from './state';
 
 // ============================================================================
+// Auto-rotation constants
+// ============================================================================
+
+/** Cooldown period after circuit breaker for Polymarket sessions (12 hours) */
+export const POLYMARKET_COOLDOWN_HOURS = 12;
+
+/** Maximum automatic rotations before permanent stop */
+export { MAX_AUTO_ROTATIONS } from './crypto-manager';
+
+// ============================================================================
 // Types
 // ============================================================================
 
@@ -489,6 +499,7 @@ export class PaperTradingManager {
         session.status = 'paused';
 
         const cbCheck = snapshot.circuitBrokenReason;
+        const cooldownUntil = new Date(Date.now() + POLYMARKET_COOLDOWN_HOURS * 60 * 60 * 1000).toISOString();
 
         await db
           .from('paper_sessions')
@@ -498,6 +509,7 @@ export class PaperTradingManager {
             is_circuit_broken: true,
             circuit_broken_reason: cbCheck,
             circuit_broken_at: new Date().toISOString(),
+            cooldown_until: cooldownUntil,
           })
           .eq('id', sessionId);
       }
@@ -525,6 +537,15 @@ export class PaperTradingManager {
           },
         })
         .eq('id', sessionId);
+
+      // Save tick snapshot for equity curve
+      await db.from('paper_trading_snapshots').insert({
+        session_id: sessionId,
+        area: 'polymarket',
+        equity: snapshot.totalBankroll,
+        pnl_pct: snapshot.totalPnlPct,
+        open_positions: snapshot.openPositions.length,
+      });
     } catch (err) {
       result.errors.push(err instanceof Error ? err.message : String(err));
     }
