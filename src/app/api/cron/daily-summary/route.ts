@@ -3,13 +3,17 @@
  *
  * Vercel Cron — daily at 22:00 UTC (23:00 CET).
  * Calculates daily P&L across all paper trading sessions
- * and sends a summary report via Telegram.
+ * and live trading, then sends a summary report via Telegram.
  */
 
 import { NextRequest, NextResponse } from 'next/server';
 import { verifyCronAuth } from '@/lib/cron-auth';
-import { getTelegramClient, DailySummary, AreaSummary } from '@/lib/telegram';
+import { getTelegramClient, DailySummary, AreaSummary, LiveTradingSummary } from '@/lib/telegram';
 import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
+import { killSwitch } from '@/services/execution/kill-switch';
+import { circuitBreakerLive } from '@/services/execution/circuit-breaker-live';
+import { syncPortfolio, alertDivergence, createPortfolioDbClient } from '@/services/portfolio/portfolio-sync';
+import { BrokerKeyService } from '@/services/broker/broker-key-service';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 30;
@@ -175,6 +179,12 @@ async function buildDailySummary(): Promise<DailySummary> {
   };
 
   // =======================================================================
+  // Live Trading — from trades table (execution_type='live')
+  // =======================================================================
+
+  const live = await buildLiveSummary(db, startOfDay, endOfDay);
+
+  // =======================================================================
   // Aggregated totals
   // =======================================================================
 
@@ -203,6 +213,141 @@ async function buildDailySummary(): Promise<DailySummary> {
     worstTrade,
     polymarket,
     crypto,
+    live,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Live Trading Summary Builder
+// ---------------------------------------------------------------------------
+
+async function buildLiveSummary(
+  db: ReturnType<typeof createUntypedAdminClient>,
+  startOfDay: string,
+  endOfDay: string,
+): Promise<LiveTradingSummary> {
+  // Query closed live trades for today
+  const { data: liveTrades } = await db
+    .from('trades')
+    .select('asset_symbol, net_pnl, gross_pnl, commission, slippage, status, exited_at')
+    .eq('execution_type', 'live')
+    .neq('status', 'open')
+    .gte('exited_at', startOfDay)
+    .lte('exited_at', endOfDay)
+    .order('exited_at', { ascending: true });
+
+  // All-time live trade stats
+  const { data: allLiveTrades } = await db
+    .from('trades')
+    .select('net_pnl')
+    .eq('execution_type', 'live')
+    .neq('status', 'open');
+
+  // Get bankroll info from live_bankroll table
+  const { data: liveBankrollRows } = await db
+    .from('live_bankroll')
+    .select('initial_capital, total_capital')
+    .limit(1);
+
+  const initialBankroll = liveBankrollRows?.[0]?.initial_capital ?? 0;
+  const currentBankroll = liveBankrollRows?.[0]?.total_capital ?? 0;
+
+  const closedToday = liveTrades ?? [];
+  const allClosed = allLiveTrades ?? [];
+
+  // Daily metrics
+  const dailyPnl = closedToday.reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
+  const dailyPnlPct = initialBankroll > 0 ? (dailyPnl / initialBankroll) * 100 : 0;
+
+  const totalPnl = allClosed.reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
+  const totalPnlPct = initialBankroll > 0 ? (totalPnl / initialBankroll) * 100 : 0;
+
+  const winning = closedToday.filter((t) => Number(t.net_pnl) > 0);
+  const winRate = closedToday.length > 0 ? winning.length / closedToday.length : 0;
+
+  const totalFees = closedToday.reduce((sum, t) => sum + (Number(t.commission) || 0), 0);
+
+  const slippages = closedToday
+    .filter((t) => t.slippage != null && Number(t.slippage) !== 0)
+    .map((t) => Math.abs(Number(t.slippage)));
+  const avgSlippage = slippages.length > 0
+    ? slippages.reduce((a, b) => a + b, 0) / slippages.length
+    : 0;
+
+  // Best/worst trade
+  let bestTrade: LiveTradingSummary['bestTrade'] = undefined;
+  let worstTrade: LiveTradingSummary['worstTrade'] = undefined;
+  if (closedToday.length > 0) {
+    const sorted = [...closedToday].sort((a, b) => Number(b.net_pnl) - Number(a.net_pnl));
+    if (Number(sorted[0].net_pnl) > 0) {
+      bestTrade = { market: sorted[0].asset_symbol, pnl: Number(sorted[0].net_pnl) };
+    }
+    const last = sorted[sorted.length - 1];
+    if (Number(last.net_pnl) < 0) {
+      worstTrade = { market: last.asset_symbol, pnl: Number(last.net_pnl) };
+    }
+  }
+
+  // Portfolio sync
+  let portfolioInSync = true;
+  let portfolioDivergences: string[] = [];
+
+  try {
+    const brokerKeyService = new BrokerKeyService();
+    const adapter = await brokerKeyService.getBrokerAdapter('crypto', 'binance');
+    const dbClient = createPortfolioDbClient(db);
+
+    // Use first user with live strategies
+    const { data: liveStratUser } = await db
+      .from('strategies')
+      .select('user_id')
+      .eq('mode', 'live')
+      .eq('area', 'crypto')
+      .limit(1);
+
+    const userId = liveStratUser?.[0]?.user_id;
+
+    if (userId && adapter) {
+      const syncResult = await syncPortfolio(adapter, userId, dbClient);
+      portfolioInSync = syncResult.inSync;
+
+      if (!syncResult.inSync) {
+        await alertDivergence(syncResult, userId);
+
+        for (const p of syncResult.phantomPositions) {
+          portfolioDivergences.push(`Phantom: ${p.asset_symbol}`);
+        }
+        for (const p of syncResult.untrackedPositions) {
+          portfolioDivergences.push(`Untracked: ${p.symbol}`);
+        }
+        for (const m of syncResult.mismatches) {
+          portfolioDivergences.push(`Mismatch: ${m.symbol} (${m.diffPct.toFixed(1)}%)`);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[daily-summary] Portfolio sync failed:', err instanceof Error ? err.message : err);
+    portfolioDivergences = ['Sync fallito'];
+    portfolioInSync = false;
+  }
+
+  return {
+    initialBankroll: Number(initialBankroll),
+    currentBankroll: Number(currentBankroll),
+    dailyPnl,
+    dailyPnlPct,
+    totalPnl,
+    totalPnlPct,
+    tradesCount: closedToday.length,
+    winRate,
+    bestTrade,
+    worstTrade,
+    totalFees,
+    avgSlippage,
+    killSwitchActive: killSwitch.isActive(),
+    circuitBreakerTripped: circuitBreakerLive.isTripped,
+    portfolioInSync,
+    portfolioDivergences: portfolioDivergences.length > 0 ? portfolioDivergences : undefined,
   };
 }
 

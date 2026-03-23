@@ -35,6 +35,45 @@ vi.mock('@/lib/db/supabase/admin', () => ({
   createUntypedAdminClient: () => ({ from: mockFrom }),
 }));
 
+vi.mock('@/services/execution/kill-switch', () => ({
+  killSwitch: {
+    isActive: () => false,
+    activate: vi.fn(),
+    deactivate: vi.fn(),
+    getStatus: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/execution/circuit-breaker-live', () => ({
+  circuitBreakerLive: {
+    get isTripped() { return false; },
+    checkAndTrip: vi.fn(),
+    recordError: vi.fn(),
+    reset: vi.fn(),
+    getStatus: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/broker/broker-key-service', () => ({
+  BrokerKeyService: class {
+    async getBrokerAdapter() { return null; }
+  },
+}));
+
+vi.mock('@/services/portfolio/portfolio-sync', () => ({
+  syncPortfolio: vi.fn().mockResolvedValue({ inSync: true, phantomPositions: [], untrackedPositions: [], mismatches: [] }),
+  alertDivergence: vi.fn().mockResolvedValue(undefined),
+  createPortfolioDbClient: vi.fn().mockReturnValue({
+    getOpenLivePositions: vi.fn().mockResolvedValue([]),
+  }),
+}));
+
+vi.mock('@/services/execution/audit-logger', () => ({
+  auditLogger: {
+    logKillSwitch: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 import { verifyCronAuth } from '@/lib/cron-auth';
 
 // ---------------------------------------------------------------------------
@@ -105,7 +144,7 @@ function createMockRequest(): any {
 function setupMockChain() {
   mockFrom.mockImplementation((table: string) => {
     const chain: Record<string, any> = {};
-    const methods = ['select', 'eq', 'in', 'gte', 'lte', 'order'];
+    const methods = ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'limit'];
 
     for (const m of methods) {
       chain[m] = vi.fn(() => chain);
@@ -160,6 +199,26 @@ function setupMockChain() {
         }
         return chain;
       });
+    }
+
+    // Live trading tables (return empty by default in paper-focused tests)
+    if (table === 'trades') {
+      chain.select = vi.fn(() => {
+        const innerChain: Record<string, any> = {};
+        for (const m of ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'limit']) {
+          innerChain[m] = vi.fn(() => innerChain);
+        }
+        innerChain.data = [];
+        return innerChain;
+      });
+    }
+
+    if (table === 'bankrolls') {
+      chain.limit = vi.fn(() => ({ ...chain, data: [] }));
+    }
+
+    if (table === 'strategies') {
+      chain.limit = vi.fn(() => ({ ...chain, data: [] }));
     }
 
     return chain;
@@ -281,7 +340,7 @@ describe('GET /api/cron/daily-summary (multi-area)', () => {
     // Override crypto to return empty
     mockFrom.mockImplementation((table: string) => {
       const chain: Record<string, any> = {};
-      const methods = ['select', 'eq', 'in', 'gte', 'lte', 'order'];
+      const methods = ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'limit'];
       for (const m of methods) {
         chain[m] = vi.fn(() => chain);
       }
@@ -309,6 +368,22 @@ describe('GET /api/cron/daily-summary (multi-area)', () => {
       if (table === 'crypto_paper_positions') {
         chain.select = vi.fn(() => chain);
         chain.eq = vi.fn(() => ({ ...chain, count: 0, data: [] }));
+      }
+      if (table === 'trades') {
+        chain.select = vi.fn(() => {
+          const innerChain: Record<string, any> = {};
+          for (const m of ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'limit']) {
+            innerChain[m] = vi.fn(() => innerChain);
+          }
+          innerChain.data = [];
+          return innerChain;
+        });
+      }
+      if (table === 'bankrolls') {
+        chain.limit = vi.fn(() => ({ ...chain, data: [] }));
+      }
+      if (table === 'strategies') {
+        chain.limit = vi.fn(() => ({ ...chain, data: [] }));
       }
       return chain;
     });

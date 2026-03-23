@@ -7,7 +7,7 @@ import { Trade, TradeExecution } from '@/core/types/trade';
 export interface AuditEntry {
   id: string;
   timestamp: string;
-  type: 'trade_intent' | 'execution' | 'cancellation' | 'error' | 'kill_switch';
+  type: 'trade_intent' | 'execution' | 'cancellation' | 'error' | 'kill_switch' | 'circuit_breaker_live';
   userId: string;
   tradeId?: string;
   executionId?: string;
@@ -52,6 +52,15 @@ export class AuditLogger {
   async logKillSwitch(userId: string, reason: string): Promise<void> {
     this.log({
       type: 'kill_switch',
+      userId,
+      data: { reason },
+    });
+  }
+
+  /** Log circuit breaker live trip */
+  async logCircuitBreakerLive(userId: string, reason: string): Promise<void> {
+    this.log({
+      type: 'circuit_breaker_live',
       userId,
       data: { reason },
     });

@@ -5,7 +5,7 @@
  * order book, historical candles.
  */
 
-import ccxt, { Exchange, Ticker, OHLCV, OrderBook } from 'ccxt';
+import ccxt, { Exchange, Ticker, OHLCV, OrderBook, Order } from 'ccxt';
 import { CryptoTicker, CryptoCandle, CryptoBalance, CryptoOrderBookEntry } from './types';
 
 export type SupportedExchange = 'binance' | 'bybit';
@@ -15,6 +15,56 @@ export interface CryptoAdapterConfig {
   apiKey?: string;
   apiSecret?: string;
   sandbox?: boolean;
+}
+
+/** Parameters for placing a trade */
+export interface PlaceTradeParams {
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: 'market' | 'limit';
+  amount: number;
+  price?: number; // required for limit orders
+}
+
+/** Result of a placed trade */
+export interface PlaceTradeResult {
+  orderId: string;
+  symbol: string;
+  side: 'buy' | 'sell';
+  type: 'market' | 'limit';
+  amount: number;
+  price: number | undefined;
+  filledAmount: number;
+  avgFillPrice: number | undefined;
+  status: string;
+  fees: number;
+  timestamp: string;
+}
+
+/** Result of cancelling an order */
+export interface CancelOrderResult {
+  success: boolean;
+  orderId: string;
+  message: string;
+}
+
+/** Status of an existing order */
+export interface OrderStatusResult {
+  orderId: string;
+  status: string;
+  filledAmount: number;
+  remainingAmount: number;
+  avgFillPrice: number | undefined;
+  fees: number;
+}
+
+/** Spot position derived from balances */
+export interface SpotPosition {
+  symbol: string;
+  amount: number;
+  avgEntryPrice: number | undefined;
+  currentPrice: number;
+  pnl: number | undefined;
 }
 
 export class CryptoAdapter {
@@ -164,6 +214,138 @@ export class CryptoAdapter {
   }
 
   // ---------------------------------------------------------------------------
+  // Order Execution
+  // ---------------------------------------------------------------------------
+
+  /** Place a trade (market or limit order) */
+  async placeTrade(params: PlaceTradeParams): Promise<PlaceTradeResult> {
+    this.requireAuth();
+
+    if (params.type === 'limit' && params.price == null) {
+      throw new Error('[CCXT] Limit orders require a price');
+    }
+
+    console.log(`[CCXT] placeTrade ${params.side} ${params.type} ${params.symbol} amount=${params.amount}${params.price ? ` price=${params.price}` : ''}`);
+
+    try {
+      const order: Order = await this.exchange.createOrder(
+        params.symbol,
+        params.type,
+        params.side,
+        params.amount,
+        params.price,
+      );
+
+      const fees = this.extractFees(order);
+
+      return {
+        orderId: order.id,
+        symbol: order.symbol,
+        side: params.side,
+        type: params.type,
+        amount: order.amount ?? params.amount,
+        price: order.price ?? params.price,
+        filledAmount: order.filled ?? 0,
+        avgFillPrice: order.average ?? order.price ?? undefined,
+        status: order.status ?? 'unknown',
+        fees,
+        timestamp: order.datetime ?? new Date().toISOString(),
+      };
+    } catch (err) {
+      throw this.wrapError('placeTrade', err);
+    }
+  }
+
+  /** Cancel a pending order */
+  async cancelOrder(orderId: string, symbol: string): Promise<CancelOrderResult> {
+    this.requireAuth();
+
+    console.log(`[CCXT] cancelOrder ${orderId} ${symbol}`);
+
+    try {
+      await this.exchange.cancelOrder(orderId, symbol);
+      return { success: true, orderId, message: 'Order cancelled successfully' };
+    } catch (err) {
+      const wrapped = this.wrapError('cancelOrder', err);
+      return { success: false, orderId, message: wrapped.message };
+    }
+  }
+
+  /** Get status of an existing order */
+  async getOrderStatus(orderId: string, symbol: string): Promise<OrderStatusResult> {
+    this.requireAuth();
+
+    console.log(`[CCXT] getOrderStatus ${orderId} ${symbol}`);
+
+    try {
+      const order: Order = await this.exchange.fetchOrder(orderId, symbol);
+      const fees = this.extractFees(order);
+
+      return {
+        orderId: order.id,
+        status: order.status ?? 'unknown',
+        filledAmount: order.filled ?? 0,
+        remainingAmount: order.remaining ?? 0,
+        avgFillPrice: order.average ?? order.price ?? undefined,
+        fees,
+      };
+    } catch (err) {
+      throw this.wrapError('getOrderStatus', err);
+    }
+  }
+
+  /** Get open orders, optionally filtered by symbol */
+  async getOpenOrders(symbol?: string): Promise<Order[]> {
+    this.requireAuth();
+
+    console.log(`[CCXT] getOpenOrders${symbol ? ` ${symbol}` : ''}`);
+
+    try {
+      return await this.exchange.fetchOpenOrders(symbol);
+    } catch (err) {
+      throw this.wrapError('getOpenOrders', err);
+    }
+  }
+
+  /** Get spot positions (balances > 0 excluding USDT) */
+  async getPositions(): Promise<SpotPosition[]> {
+    this.requireAuth();
+
+    console.log('[CCXT] getPositions');
+
+    try {
+      const balances = await this.getBalances();
+      const positions: SpotPosition[] = [];
+
+      for (const bal of balances) {
+        if (bal.asset === 'USDT' || bal.total <= 0) continue;
+
+        const symbol = `${bal.asset}/USDT`;
+        let currentPrice = 0;
+        try {
+          const ticker = await this.getTicker(symbol);
+          currentPrice = ticker.price;
+        } catch {
+          // asset might not have a USDT pair — skip
+          continue;
+        }
+
+        positions.push({
+          symbol,
+          amount: bal.total,
+          avgEntryPrice: undefined, // spot exchange doesn't track entry price
+          currentPrice,
+          pnl: undefined, // can't compute without entry price
+        });
+      }
+
+      return positions;
+    } catch (err) {
+      throw this.wrapError('getPositions', err);
+    }
+  }
+
+  // ---------------------------------------------------------------------------
   // Private helpers
   // ---------------------------------------------------------------------------
 
@@ -200,5 +382,31 @@ export class CryptoAdapter {
       '1w': 604_800_000,
     };
     return map[timeframe] ?? 3_600_000;
+  }
+
+  /** Throw if the exchange has no API key configured */
+  private requireAuth(): void {
+    if (!this.exchange.apiKey) {
+      throw new Error(`[CCXT] Exchange ${this.exchangeId} is not authenticated — provide apiKey and apiSecret`);
+    }
+  }
+
+  /** Extract total fees from a CCXT order */
+  private extractFees(order: Order): number {
+    if (order.fee?.cost != null) return order.fee.cost;
+    // Some exchanges return fees as an array (not in ccxt types but present at runtime)
+    const fees = (order as unknown as { fees?: Array<{ cost?: number }> }).fees;
+    if (fees && fees.length > 0) {
+      return fees.reduce((sum: number, f: { cost?: number }) => sum + (f.cost ?? 0), 0);
+    }
+    return 0;
+  }
+
+  /** Wrap a CCXT error into a readable Error */
+  private wrapError(method: string, err: unknown): Error {
+    if (err instanceof Error) {
+      return new Error(`[CCXT] ${method} failed: ${err.message}`);
+    }
+    return new Error(`[CCXT] ${method} failed: ${String(err)}`);
   }
 }

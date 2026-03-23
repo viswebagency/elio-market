@@ -8,7 +8,7 @@ export { VirtualPortfolio } from './portfolio';
 export type { Position, ClosedPosition, PortfolioSnapshot, TierBankroll, OperationLog, CircuitBreakerLimits } from './portfolio';
 
 export { StrategyExecutor } from './executor';
-export type { ExecutorConfig, ExecutionLog, StrategyMode } from './executor';
+export type { ExecutorConfig, ExecutionLog, StrategyMode, LiveExecutionResult, LiveExecutionService, GetOrderStatusFn } from './executor';
 
 export { SignalType, TierLevel, createSignal, createSkipSignal } from './signals';
 export type { Signal, SignalBatch } from './signals';

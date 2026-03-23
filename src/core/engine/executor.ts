@@ -1,11 +1,37 @@
-import { MarketArea } from '../types/common';
+import { MarketArea, Direction, OrderType } from '../types/common';
+import { Trade, TradeExecution } from '../types/trade';
 import { ParsedStrategy } from './dsl-parser';
 import { MarketSnapshot, evaluateEntry, evaluateExit, EvaluationResult } from './evaluator';
 import { VirtualPortfolio, PortfolioSnapshot, CircuitBreakerLimits } from './portfolio';
 import { Signal, SignalBatch, SignalType, TierLevel, createSignal, createSkipSignal } from './signals';
 import { MarketAdapter, NormalizedMarket, normalizedToSnapshot } from './market-adapter';
+import type { ReconciliationResult } from '../../services/reconciliation/order-reconciliation';
 
 export type StrategyMode = 'observation' | 'paper' | 'live';
+
+/** Service interface for executing trades (dependency injection) */
+export interface LiveExecutionService {
+  execute: (trade: Trade) => Promise<TradeExecution>;
+}
+
+/** Function to get order status for reconciliation */
+export type GetOrderStatusFn = (orderId: string, symbol: string) => Promise<{
+  orderId: string;
+  status: string;
+  filledAmount: number;
+  remainingAmount: number;
+  avgFillPrice: number | undefined;
+  fees: number;
+}>;
+
+export interface LiveExecutionResult {
+  tradeId: string;
+  orderId: string;
+  status: 'executed' | 'blocked' | 'failed';
+  reason?: string;
+  execution?: TradeExecution;
+  reconciliation?: ReconciliationResult;
+}
 
 export interface ExecutorConfig {
   mode: StrategyMode;
@@ -15,6 +41,8 @@ export interface ExecutorConfig {
   slippagePct: number;
   /** Area di mercato — sovrascrive il default PREDICTION */
   area?: MarketArea;
+  /** User ID — required for live execution */
+  userId?: string;
 }
 
 export interface ExecutionLog {
@@ -39,6 +67,7 @@ export class StrategyExecutor {
   private logs: ExecutionLog[] = [];
   private adapter: MarketAdapter | null = null;
   private resolvedArea: MarketArea;
+  private pendingLiveTrades: Array<{ signal: Signal; market: MarketSnapshot }> = [];
 
   constructor(strategy: ParsedStrategy, config?: Partial<ExecutorConfig>, adapter?: MarketAdapter) {
     this.strategy = strategy;
@@ -99,7 +128,7 @@ export class StrategyExecutor {
         const signal = this.generateEntrySignal(evaluation, market);
         signals.push(signal);
 
-        if (this.config.mode === 'paper') {
+        if (this.config.mode === 'paper' || this.config.mode === 'live') {
           this.executeSignal(signal, market);
         }
       } else {
@@ -225,7 +254,8 @@ export class StrategyExecutor {
     }
 
     if (this.config.mode === 'live') {
-      this.addLog(`[LIVE] Placeholder - esecuzione live non implementata: ${market.name}`, signal);
+      this.pendingLiveTrades.push({ signal, market });
+      this.addLog(`[LIVE-EXEC] Segnale accodato per esecuzione live: ${market.name} @ $${market.price.toFixed(4)}`, signal);
       return;
     }
 
@@ -318,6 +348,126 @@ export class StrategyExecutor {
 
   isCircuitBroken(): boolean {
     return this.portfolio.checkCircuitBreaker().broken;
+  }
+
+  /** Get pending live trades (queued during evaluateMarkets in live mode) */
+  getPendingLiveTrades(): Array<{ signal: Signal; market: MarketSnapshot }> {
+    return [...this.pendingLiveTrades];
+  }
+
+  /**
+   * Execute all pending live trades through the ExecutionService.
+   * Call this after evaluateMarkets() when mode='live'.
+   *
+   * Flow: Executor -> ExecutionService -> Plugin (CryptoAdapter) -> CCXT -> Exchange
+   */
+  async executePendingLiveTrades(opts: {
+    userId: string;
+    executionService: LiveExecutionService;
+    getOrderStatus?: GetOrderStatusFn;
+    reconcileAndUpdateFn?: (
+      getOrderStatusFn: GetOrderStatusFn,
+      orderId: string,
+      symbol: string,
+      expectedPrice: number,
+      tradeId: string,
+    ) => Promise<ReconciliationResult>;
+  }): Promise<LiveExecutionResult[]> {
+    const results: LiveExecutionResult[] = [];
+
+    if (this.pendingLiveTrades.length === 0) {
+      this.addLog('[LIVE-EXEC] Nessun trade live in coda', null);
+      return results;
+    }
+
+    this.addLog(`[LIVE-EXEC] Esecuzione di ${this.pendingLiveTrades.length} trade live`, null);
+
+    for (const { signal, market } of this.pendingLiveTrades) {
+      const trade = this.buildTrade(signal, market, opts.userId);
+
+      try {
+        const execution = await opts.executionService.execute(trade);
+        this.addLog(
+          `[LIVE-EXEC] Ordine piazzato: ${execution.externalOrderId} su ${market.name} — status=${execution.status}`,
+          signal,
+        );
+
+        let reconciliation: ReconciliationResult | undefined;
+        if (opts.getOrderStatus && opts.reconcileAndUpdateFn && execution.externalOrderId) {
+          try {
+            reconciliation = await opts.reconcileAndUpdateFn(
+              opts.getOrderStatus,
+              execution.externalOrderId,
+              trade.symbol,
+              signal.currentPrice ?? market.price,
+              trade.id,
+            );
+            this.addLog(
+              `[RECONCILIATION] ${trade.symbol}: status=${reconciliation.status}, slippage=${reconciliation.slippage?.toFixed(4) ?? 'N/A'}%, fees=${reconciliation.fees}`,
+              signal,
+            );
+          } catch (err) {
+            this.addLog(
+              `[RECONCILIATION] Fallita per ${trade.symbol}: ${err instanceof Error ? err.message : 'Unknown'}`,
+              signal,
+            );
+          }
+        }
+
+        results.push({
+          tradeId: trade.id,
+          orderId: execution.externalOrderId,
+          status: 'executed',
+          execution,
+          reconciliation,
+        });
+      } catch (err) {
+        const message = err instanceof Error ? err.message : 'Unknown error';
+        const isKillSwitch = message.includes('Kill switch');
+
+        this.addLog(
+          `[LIVE-EXEC] ${isKillSwitch ? 'BLOCCATO da kill switch' : 'Esecuzione fallita'} per ${market.name}: ${message}`,
+          signal,
+        );
+
+        results.push({
+          tradeId: trade.id,
+          orderId: '',
+          status: isKillSwitch ? 'blocked' : 'failed',
+          reason: message,
+        });
+      }
+    }
+
+    this.pendingLiveTrades = [];
+    return results;
+  }
+
+  private buildTrade(signal: Signal, market: MarketSnapshot, userId: string): Trade {
+    const currentPrice = signal.currentPrice ?? market.price;
+    const size = currentPrice > 0 ? (signal.suggestedStake ?? 0) / currentPrice : 0;
+
+    return {
+      id: crypto.randomUUID(),
+      strategyId: signal.strategyId,
+      userId,
+      area: this.resolvedArea,
+      symbol: signal.marketId,
+      direction: signal.type === SignalType.ENTER_LONG ? Direction.LONG : Direction.SHORT,
+      orderType: OrderType.MARKET,
+      size,
+      sizePercent: signal.suggestedStake
+        ? (signal.suggestedStake / this.config.initialBankroll) * 100
+        : undefined,
+      currency: this.resolvedArea === MarketArea.CRYPTO ? 'USDT' : 'USD',
+      metadata: {
+        confidence: signal.confidence,
+        tier: signal.suggestedTier,
+        expectedPrice: currentPrice,
+        executionType: 'live',
+      },
+      createdAt: new Date().toISOString(),
+    };
   }
 
   private addLog(message: string, signal: Signal | null): void {

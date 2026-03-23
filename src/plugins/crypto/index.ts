@@ -3,13 +3,13 @@
  * Implements the MarketPlugin interface.
  */
 
-import { MarketArea, Currency, TimeInterval } from '@/core/types/common';
+import { MarketArea, Currency, TimeInterval, Direction, OrderType } from '@/core/types/common';
 import {
   MarketPlugin, PluginCapabilities, PluginConnectionConfig,
   PluginStatus, MarketFilter,
 } from '@/core/types/plugin';
 import { NormalizedPrice, NormalizedCandle, NormalizedMarket } from '@/core/types/market-data';
-import { Trade, TradeExecution } from '@/core/types/trade';
+import { Trade, TradeExecution, TradeExecutionStatus } from '@/core/types/trade';
 import { CryptoAdapter, SupportedExchange } from './adapter';
 import { normalizeCryptoTicker, normalizeCryptoCandle, normalizeCryptoToMarket } from './normalizer';
 import { CryptoWebSocket } from './websocket';
@@ -129,9 +129,44 @@ export class CryptoPlugin implements MarketPlugin {
     return () => this.ws?.disconnect();
   }
 
-  async placeTrade(_trade: Trade): Promise<TradeExecution> {
+  async placeTrade(trade: Trade): Promise<TradeExecution> {
     this.ensureReady();
-    throw new Error('Crypto trade execution not yet implemented — paper trading only');
+    const adapter = this.getAdapter();
+    if (!adapter) throw new Error('No crypto adapter available for execution');
+
+    const ccxtSymbol = this.toCcxtSymbol(trade.symbol);
+    const side: 'buy' | 'sell' = trade.direction === Direction.LONG ? 'buy' : 'sell';
+    const type: 'market' | 'limit' = trade.orderType === OrderType.LIMIT ? 'limit' : 'market';
+
+    const result = await adapter.placeTrade({
+      symbol: ccxtSymbol,
+      side,
+      type,
+      amount: trade.size,
+      price: trade.limitPrice,
+    });
+
+    const statusMap: Record<string, TradeExecutionStatus> = {
+      closed: 'filled',
+      open: 'pending',
+      canceled: 'cancelled',
+      expired: 'expired',
+    };
+
+    return {
+      id: crypto.randomUUID(),
+      tradeId: trade.id,
+      externalOrderId: result.orderId,
+      status: statusMap[result.status] ?? 'submitted',
+      fillPrice: result.avgFillPrice,
+      filledSize: result.filledAmount,
+      commission: result.fees,
+      slippage: undefined,
+      executedAt: result.timestamp,
+      rawResponse: result,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
   }
 
   /** Get adapter for a specific exchange, or primary */

@@ -93,6 +93,25 @@ export interface AreaSummary {
   worstTrade?: { market: string; pnl: number };
 }
 
+export interface LiveTradingSummary {
+  initialBankroll: number;
+  currentBankroll: number;
+  dailyPnl: number;
+  dailyPnlPct: number;
+  totalPnl: number;
+  totalPnlPct: number;
+  tradesCount: number;
+  winRate: number;
+  bestTrade?: { market: string; pnl: number };
+  worstTrade?: { market: string; pnl: number };
+  totalFees: number;
+  avgSlippage: number;
+  killSwitchActive: boolean;
+  circuitBreakerTripped: boolean;
+  portfolioInSync: boolean;
+  portfolioDivergences?: string[];
+}
+
 export interface DailySummary {
   date: string;
   pnl: number;
@@ -105,6 +124,7 @@ export interface DailySummary {
   worstTrade?: { market: string; pnl: number };
   polymarket?: AreaSummary;
   crypto?: AreaSummary;
+  live?: LiveTradingSummary;
 }
 
 export interface CircuitBreakerDetails {
@@ -365,13 +385,18 @@ export function formatDailySummary(summary: DailySummary): string {
     `\uD83D\uDCCA <b>Report Giornaliero</b> — ${summary.date}`,
   ];
 
-  // Per-area sections
+  // Per-area sections (paper)
   if (summary.polymarket) {
     lines.push('', ...formatAreaSection('Polymarket', summary.polymarket));
   }
 
   if (summary.crypto) {
     lines.push('', ...formatAreaSection('Crypto', summary.crypto));
+  }
+
+  // Live trading section
+  if (summary.live) {
+    lines.push('', ...formatLiveSection(summary.live));
   }
 
   // Aggregated totals
@@ -407,6 +432,76 @@ export function formatDailySummary(summary: DailySummary): string {
   }
 
   return lines.join('\n');
+}
+
+function formatLiveSection(live: LiveTradingSummary): string[] {
+  const lines: string[] = [
+    `\uD83D\uDD34 <b>LIVE TRADING</b>`,
+  ];
+
+  if (live.tradesCount === 0) {
+    lines.push('Nessun trade live oggi');
+    // Still show system status
+    lines.push('');
+    lines.push(`\uD83D\uDEE1 Kill switch: ${live.killSwitchActive ? '\u{1F6A8} ATTIVO' : '\u2705 disattivo'}`);
+    lines.push(`\u26A1 Circuit breaker: ${live.circuitBreakerTripped ? '\u{1F6A8} TRIPPED' : '\u2705 ok'}`);
+    lines.push(`\uD83D\uDD04 Portfolio sync: ${live.portfolioInSync ? '\u2705 in sync' : '\u26A0\uFE0F divergenze'}`);
+
+    if (!live.portfolioInSync && live.portfolioDivergences) {
+      for (const d of live.portfolioDivergences) {
+        lines.push(`  \u2022 ${escapeHtml(d)}`);
+      }
+    }
+
+    return lines;
+  }
+
+  const pnlEmoji = live.dailyPnl >= 0 ? '\uD83D\uDCC8' : '\uD83D\uDCC9';
+  const dailyPnlFmt = live.dailyPnl >= 0
+    ? `+$${live.dailyPnl.toFixed(2)}`
+    : `-$${Math.abs(live.dailyPnl).toFixed(2)}`;
+  const dailyPctFmt = live.dailyPnlPct >= 0
+    ? `+${live.dailyPnlPct.toFixed(2)}%`
+    : `${live.dailyPnlPct.toFixed(2)}%`;
+
+  const totalPnlFmt = live.totalPnl >= 0
+    ? `+$${live.totalPnl.toFixed(2)}`
+    : `-$${Math.abs(live.totalPnl).toFixed(2)}`;
+  const totalPctFmt = live.totalPnlPct >= 0
+    ? `+${live.totalPnlPct.toFixed(2)}%`
+    : `${live.totalPnlPct.toFixed(2)}%`;
+
+  lines.push(
+    `\uD83D\uDCB0 Bankroll: $${live.initialBankroll.toFixed(2)} \u2192 $${live.currentBankroll.toFixed(2)}`,
+    `${pnlEmoji} P&L oggi: ${dailyPnlFmt} (${dailyPctFmt})`,
+    `\uD83D\uDCCA P&L totale: ${totalPnlFmt} (${totalPctFmt})`,
+    `\uD83D\uDD04 Operazioni: ${live.tradesCount}`,
+    `\u2705 Win rate: ${(live.winRate * 100).toFixed(1)}%`,
+  );
+
+  if (live.bestTrade) {
+    lines.push(`\uD83C\uDFC6 Best: ${escapeHtml(live.bestTrade.market)} (+$${live.bestTrade.pnl.toFixed(2)})`);
+  }
+  if (live.worstTrade) {
+    lines.push(`\uD83D\uDCA9 Worst: ${escapeHtml(live.worstTrade.market)} (-$${Math.abs(live.worstTrade.pnl).toFixed(2)})`);
+  }
+
+  lines.push(
+    `\uD83D\uDCB8 Commissioni: $${live.totalFees.toFixed(2)}`,
+    `\uD83D\uDCCF Slippage medio: ${live.avgSlippage.toFixed(2)}%`,
+    '',
+    `\uD83D\uDEE1 Kill switch: ${live.killSwitchActive ? '\u{1F6A8} ATTIVO' : '\u2705 disattivo'}`,
+    `\u26A1 Circuit breaker: ${live.circuitBreakerTripped ? '\u{1F6A8} TRIPPED' : '\u2705 ok'}`,
+    `\uD83D\uDD04 Portfolio sync: ${live.portfolioInSync ? '\u2705 in sync' : '\u26A0\uFE0F divergenze'}`,
+  );
+
+  if (!live.portfolioInSync && live.portfolioDivergences) {
+    for (const d of live.portfolioDivergences) {
+      lines.push(`  \u2022 ${escapeHtml(d)}`);
+    }
+  }
+
+  return lines;
 }
 
 function formatAreaSection(label: string, area: AreaSummary): string[] {

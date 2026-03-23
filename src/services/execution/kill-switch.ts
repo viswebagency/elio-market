@@ -1,7 +1,23 @@
 /**
  * Kill switch — emergency stop for all trading operations.
- * When activated, blocks all new trades and optionally closes open positions.
+ * When activated, cancels all open orders and closes all positions.
  */
+
+import { CryptoAdapter, PlaceTradeResult, CancelOrderResult } from '@/plugins/crypto/adapter';
+import { auditLogger } from './audit-logger';
+
+export interface KillSwitchReport {
+  cancelledOrders: number;
+  closedPositions: number;
+  errors: string[];
+}
+
+export interface KillSwitchStatus {
+  active: boolean;
+  activatedAt: string | null;
+  activatedBy: string | null;
+  reason: string | null;
+}
 
 export class KillSwitch {
   private active = false;
@@ -14,26 +30,107 @@ export class KillSwitch {
     return this.active;
   }
 
-  /** Activate the kill switch */
-  activate(userId: string, reason: string): void {
+  /**
+   * Activate the kill switch:
+   * 1. Set flag
+   * 2. Cancel all open orders
+   * 3. Close all open positions (market sell)
+   * 4. Log every action to audit
+   */
+  async activate(
+    userId: string,
+    reason: string,
+    adapter?: CryptoAdapter
+  ): Promise<KillSwitchReport> {
     this.active = true;
     this.activatedAt = new Date().toISOString();
     this.activatedBy = userId;
     this.reason = reason;
 
     console.error(`[KILL SWITCH] ACTIVATED by ${userId}: ${reason}`);
-    // TODO: send notifications to all channels
-    // TODO: cancel all pending orders
-    // TODO: optionally close all positions
+    await auditLogger.logKillSwitch(userId, reason);
+
+    const report: KillSwitchReport = {
+      cancelledOrders: 0,
+      closedPositions: 0,
+      errors: [],
+    };
+
+    if (!adapter) {
+      return report;
+    }
+
+    // Cancel all open orders
+    try {
+      const openOrders = await adapter.getOpenOrders();
+      for (const order of openOrders) {
+        try {
+          const result: CancelOrderResult = await adapter.cancelOrder(
+            order.id,
+            order.symbol
+          );
+          if (result.success) {
+            report.cancelledOrders++;
+            await auditLogger.logKillSwitch(userId, `Cancelled order ${order.id} on ${order.symbol}`);
+          } else {
+            report.errors.push(`Failed to cancel order ${order.id}: ${result.message}`);
+          }
+        } catch (err) {
+          report.errors.push(
+            `Error cancelling order ${order.id}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+    } catch (err) {
+      report.errors.push(
+        `Error fetching open orders: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    // Close all open positions (market sell)
+    try {
+      const positions = await adapter.getPositions();
+      for (const pos of positions) {
+        try {
+          const result: PlaceTradeResult = await adapter.placeTrade({
+            symbol: pos.symbol,
+            side: 'sell',
+            type: 'market',
+            amount: pos.amount,
+          });
+          if (result.status !== 'rejected') {
+            report.closedPositions++;
+            await auditLogger.logKillSwitch(
+              userId,
+              `Closed position ${pos.symbol}: sold ${pos.amount} @ market (order ${result.orderId})`
+            );
+          } else {
+            report.errors.push(`Position close rejected for ${pos.symbol}`);
+          }
+        } catch (err) {
+          report.errors.push(
+            `Error closing position ${pos.symbol}: ${err instanceof Error ? err.message : String(err)}`
+          );
+        }
+      }
+    } catch (err) {
+      report.errors.push(
+        `Error fetching positions: ${err instanceof Error ? err.message : String(err)}`
+      );
+    }
+
+    return report;
   }
 
   /** Deactivate the kill switch */
-  deactivate(userId: string): void {
+  async deactivate(userId: string): Promise<void> {
     console.log(`[KILL SWITCH] Deactivated by ${userId}`);
     this.active = false;
     this.activatedAt = null;
     this.activatedBy = null;
     this.reason = null;
+
+    await auditLogger.logKillSwitch(userId, 'Kill switch deactivated');
   }
 
   /** Get current status */
@@ -45,13 +142,6 @@ export class KillSwitch {
       reason: this.reason,
     };
   }
-}
-
-export interface KillSwitchStatus {
-  active: boolean;
-  activatedAt: string | null;
-  activatedBy: string | null;
-  reason: string | null;
 }
 
 export const killSwitch = new KillSwitch();

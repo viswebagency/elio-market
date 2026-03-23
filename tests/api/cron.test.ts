@@ -58,6 +58,49 @@ vi.mock('@/lib/db/supabase/admin', () => ({
   createUntypedAdminClient: () => ({ from: mockFrom }),
 }));
 
+vi.mock('@/services/execution/kill-switch', () => ({
+  killSwitch: {
+    isActive: () => false,
+    activate: vi.fn(),
+    deactivate: vi.fn(),
+    getStatus: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/execution/circuit-breaker-live', () => ({
+  circuitBreakerLive: {
+    get isTripped() { return false; },
+    checkAndTrip: vi.fn(),
+    recordError: vi.fn(),
+    reset: vi.fn(),
+    getStatus: vi.fn(),
+  },
+}));
+
+vi.mock('@/services/broker/broker-key-service', () => ({
+  BrokerKeyService: class {
+    async getBrokerAdapter() { return null; }
+  },
+}));
+
+vi.mock('@/services/portfolio/portfolio-sync', () => ({
+  syncPortfolio: vi.fn().mockResolvedValue({ inSync: true, phantomPositions: [], untrackedPositions: [], mismatches: [] }),
+  alertDivergence: vi.fn().mockResolvedValue(undefined),
+  createPortfolioDbClient: vi.fn().mockReturnValue({
+    getOpenLivePositions: vi.fn().mockResolvedValue([]),
+  }),
+}));
+
+vi.mock('@/services/execution/audit-logger', () => ({
+  auditLogger: {
+    logKillSwitch: vi.fn().mockResolvedValue(undefined),
+    logTradeIntent: vi.fn().mockResolvedValue(undefined),
+    logExecution: vi.fn().mockResolvedValue(undefined),
+    logError: vi.fn().mockResolvedValue(undefined),
+    logCircuitBreakerLive: vi.fn().mockResolvedValue(undefined),
+  },
+}));
+
 import { verifyCronAuth } from '@/lib/cron-auth';
 
 // ---------------------------------------------------------------------------
@@ -292,30 +335,36 @@ describe('GET /api/cron/daily-summary', () => {
     // Mock Supabase chain for daily-summary queries
     const mockSelect = vi.fn();
     const mockEq = vi.fn();
+    const mockNeq = vi.fn();
     const mockGte = vi.fn();
     const mockLte = vi.fn();
     const mockOrder = vi.fn();
     const mockIn = vi.fn();
+    const mockLimit = vi.fn();
 
     // Default: return empty results
     const emptyResult = { data: [], count: 0 };
     const chainEnd = {
       select: mockSelect,
       eq: mockEq,
+      neq: mockNeq,
       gte: mockGte,
       lte: mockLte,
       order: mockOrder,
       in: mockIn,
+      limit: mockLimit,
       ...emptyResult,
     };
 
     // Make every chain method return the chain
     mockSelect.mockReturnValue(chainEnd);
     mockEq.mockReturnValue(chainEnd);
+    mockNeq.mockReturnValue(chainEnd);
     mockGte.mockReturnValue(chainEnd);
     mockLte.mockReturnValue(chainEnd);
     mockOrder.mockReturnValue(chainEnd);
     mockIn.mockReturnValue(chainEnd);
+    mockLimit.mockReturnValue(chainEnd);
     mockFrom.mockReturnValue(chainEnd);
 
     const mod = await import('@/app/api/cron/daily-summary/route');
