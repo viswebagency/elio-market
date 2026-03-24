@@ -40,6 +40,21 @@ export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
   try {
+    // DEBUG: direct DB query to diagnose session loading issue
+    const debugDb = createUntypedAdminClient();
+    const { data: debugSessions, error: debugError } = await debugDb
+      .from('crypto_paper_sessions')
+      .select('id, strategy_code, status')
+      .eq('status', 'running');
+    const debugInfo = {
+      dbUrl: process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 30) + '...',
+      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
+      sessionsFound: debugSessions?.length ?? 0,
+      dbError: debugError?.message ?? null,
+      sessions: (debugSessions ?? []).map((s: { strategy_code: string; id: string }) => s.strategy_code),
+    };
+    console.log('[Cron/crypto-tick] DEBUG DB:', JSON.stringify(debugInfo));
+
     const manager = getCryptoPaperTradingManager();
 
     // Initialize adapter with timeout and retry
@@ -152,7 +167,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[Cron/crypto-tick]', JSON.stringify(summary));
 
-    return NextResponse.json({ ok: true, summary });
+    return NextResponse.json({ ok: true, summary, _debug: debugInfo });
   } catch (error) {
     consecutiveFailures++;
     const message = error instanceof Error ? error.message : 'Errore sconosciuto';
