@@ -8,19 +8,23 @@ import { NextRequest } from 'next/server';
 // --- Mocks (must be before imports) ---
 
 const mockKillSwitch = {
-  isActive: vi.fn().mockReturnValue(false),
+  isActive: vi.fn().mockResolvedValue(false),
+  isActiveSync: vi.fn().mockReturnValue(false),
   activate: vi.fn().mockResolvedValue({ cancelledOrders: 0, closedPositions: 0, errors: [] }),
   deactivate: vi.fn().mockResolvedValue(undefined),
   getStatus: vi.fn().mockReturnValue({ active: false }),
+  hydrate: vi.fn().mockResolvedValue(undefined),
 };
 
 let circuitBreakerTripped = false;
 const mockCircuitBreaker = {
   get isTripped() { return circuitBreakerTripped; },
+  isTrippedAsync: vi.fn().mockImplementation(() => Promise.resolve(circuitBreakerTripped)),
   checkAndTrip: vi.fn().mockResolvedValue(false),
   recordError: vi.fn().mockResolvedValue(false),
   getStatus: vi.fn().mockReturnValue({ tripped: false }),
   reset: vi.fn().mockResolvedValue(undefined),
+  hydrate: vi.fn().mockResolvedValue(undefined),
 };
 
 vi.mock('@/services/execution/kill-switch', () => ({
@@ -225,7 +229,7 @@ function makeRequest(authorized = true): NextRequest {
 describe('/api/cron/live-tick', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mockKillSwitch.isActive.mockReturnValue(false);
+    mockKillSwitch.isActive.mockResolvedValue(false);
     circuitBreakerTripped = false;
     mockStrategiesData = [];
     mockProfilesData = [];
@@ -238,7 +242,7 @@ describe('/api/cron/live-tick', () => {
   });
 
   it('should skip when kill switch is active', async () => {
-    mockKillSwitch.isActive.mockReturnValue(true);
+    mockKillSwitch.isActive.mockResolvedValue(true);
     const { GET } = await import('@/app/api/cron/live-tick/route');
 
     const response = await GET(makeRequest());

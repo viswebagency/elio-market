@@ -61,8 +61,8 @@ export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // --- Kill switch check ---
-    if (killSwitch.isActive()) {
+    // --- Kill switch check (loads from DB on cold start) ---
+    if (await killSwitch.isActive()) {
       console.log('[Cron/live-tick] Kill switch active — skipping');
       return NextResponse.json({
         ok: true,
@@ -71,8 +71,8 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    // --- Circuit breaker check ---
-    if (circuitBreakerLive.isTripped) {
+    // --- Circuit breaker check (loads from DB on cold start) ---
+    if (await circuitBreakerLive.isTrippedAsync()) {
       console.log('[Cron/live-tick] Circuit breaker tripped — skipping');
       return NextResponse.json({
         ok: true,

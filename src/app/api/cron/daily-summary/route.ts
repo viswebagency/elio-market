@@ -301,7 +301,7 @@ async function buildLiveSummary(
     const { data: liveStratUser } = await db
       .from('strategies')
       .select('user_id')
-      .eq('mode', 'live')
+      .eq('status', 'live')
       .eq('area', 'crypto')
       .limit(1);
 
@@ -344,7 +344,7 @@ async function buildLiveSummary(
     worstTrade,
     totalFees,
     avgSlippage,
-    killSwitchActive: killSwitch.isActive(),
+    killSwitchActive: killSwitch.isActiveSync(),
     circuitBreakerTripped: circuitBreakerLive.isTripped,
     portfolioInSync,
     portfolioDivergences: portfolioDivergences.length > 0 ? portfolioDivergences : undefined,

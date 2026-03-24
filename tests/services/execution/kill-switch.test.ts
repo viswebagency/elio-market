@@ -15,6 +15,16 @@ vi.mock('@/services/execution/audit-logger', () => ({
   },
 }));
 
+// Mock DB for hydrate/persist
+vi.mock('@/lib/db/supabase/admin', () => ({
+  createUntypedAdminClient: () => ({
+    from: () => ({
+      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+    }),
+  }),
+}));
+
 function createMockAdapter(overrides: Record<string, unknown> = {}) {
   return {
     getOpenOrders: vi.fn().mockResolvedValue([
@@ -41,15 +51,15 @@ describe('KillSwitch', () => {
     ks = new KillSwitch();
   });
 
-  it('should start inactive', () => {
-    expect(ks.isActive()).toBe(false);
+  it('should start inactive', async () => {
+    expect(await ks.isActive()).toBe(false);
     expect(ks.getStatus().active).toBe(false);
   });
 
   it('should activate without adapter (flag-only)', async () => {
     const report = await ks.activate('user-1', 'test reason');
 
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
     expect(ks.getStatus().activatedBy).toBe('user-1');
     expect(ks.getStatus().reason).toBe('test reason');
     expect(report.cancelledOrders).toBe(0);
@@ -61,7 +71,7 @@ describe('KillSwitch', () => {
     const adapter = createMockAdapter();
     const report = await ks.activate('user-1', 'emergency', adapter);
 
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
     expect(report.cancelledOrders).toBe(2);
     expect(report.closedPositions).toBe(1);
     expect(report.errors).toHaveLength(0);
@@ -90,7 +100,7 @@ describe('KillSwitch', () => {
 
     const report = await ks.activate('user-1', 'partial fail', adapter);
 
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
     expect(report.cancelledOrders).toBe(1);
     expect(report.closedPositions).toBe(0);
     expect(report.errors).toHaveLength(2);
@@ -105,7 +115,7 @@ describe('KillSwitch', () => {
 
     const report = await ks.activate('user-1', 'api down', adapter);
 
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
     expect(report.cancelledOrders).toBe(0);
     expect(report.errors.some((e: string) => e.includes('API down'))).toBe(true);
     // Positions should still be attempted
@@ -154,10 +164,10 @@ describe('KillSwitch', () => {
 
   it('should deactivate and reset state', async () => {
     await ks.activate('user-1', 'test');
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
 
     await ks.deactivate('user-1');
-    expect(ks.isActive()).toBe(false);
+    expect(await ks.isActive()).toBe(false);
     expect(ks.getStatus().activatedAt).toBeNull();
     expect(ks.getStatus().activatedBy).toBeNull();
     expect(ks.getStatus().reason).toBeNull();

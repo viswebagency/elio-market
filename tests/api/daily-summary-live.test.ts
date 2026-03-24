@@ -40,7 +40,8 @@ vi.mock('@/lib/db/supabase/admin', () => ({
 const mockIsActive = vi.fn().mockReturnValue(false);
 vi.mock('@/services/execution/kill-switch', () => ({
   killSwitch: {
-    isActive: () => mockIsActive(),
+    isActive: () => Promise.resolve(mockIsActive()),
+    isActiveSync: () => mockIsActive(),
     activate: vi.fn().mockResolvedValue({ cancelledOrders: 0, closedPositions: 0, errors: [] }),
     deactivate: vi.fn(),
     getStatus: vi.fn(),

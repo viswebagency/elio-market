@@ -13,7 +13,7 @@ export class ExecutionService {
   /** Execute a trade through the appropriate plugin */
   async execute(trade: Trade): Promise<TradeExecution> {
     // Step 1: Kill switch check
-    if (killSwitch.isActive()) {
+    if (await killSwitch.isActive()) {
       throw new Error('Kill switch is active. All trading is halted.');
     }
 

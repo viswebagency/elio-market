@@ -5,17 +5,15 @@
  * activates the kill switch (which cancels orders + closes positions)
  * and sends a critical Telegram alert.
  *
- * Difference from paper trading circuit breaker (VirtualPortfolio):
- * - This is for LIVE trading with real money
- * - When tripped, it activates the kill switch (real order cancellation)
- * - Has its own thresholds (more conservative)
- * - Tracks execution errors as an additional trip condition
+ * State is persisted in `live_safety_state` table so it survives
+ * Vercel cold starts.
  */
 
 import { KillSwitch } from './kill-switch';
 import { auditLogger } from './audit-logger';
 import { getTelegramClient } from '@/lib/telegram';
 import { cancelAllPending } from '@/services/telegram/trade-approval';
+import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 import type { CryptoAdapter } from '@/plugins/crypto/adapter';
 
 // ---------------------------------------------------------------------------
@@ -61,6 +59,7 @@ export interface CircuitBreakerLiveStatus {
 }
 
 const ELIO_CHAT_ID = 8659384895;
+const DB_ROW_ID = 'circuit_breaker';
 
 // ---------------------------------------------------------------------------
 // Class
@@ -74,6 +73,7 @@ export class CircuitBreakerLive {
   private consecutiveLosses = 0;
   private dailyLossPct = 0;
   private errorTimestamps: number[] = [];
+  private hydrated = false;
 
   private killSwitch: KillSwitch;
 
@@ -81,14 +81,20 @@ export class CircuitBreakerLive {
     this.killSwitch = killSwitch;
   }
 
-  /** Check if circuit breaker is tripped */
+  /** Check if circuit breaker is tripped — loads from DB on first call */
+  async isTrippedAsync(): Promise<boolean> {
+    await this.hydrate();
+    return this.tripped;
+  }
+
+  /** Synchronous check — only use after hydrate() has been called */
   get isTripped(): boolean {
     return this.tripped;
   }
 
   /**
    * Check thresholds after a trade result. If any threshold is breached,
-   * trip the circuit breaker → activate kill switch → send Telegram alert.
+   * trip the circuit breaker -> activate kill switch -> send Telegram alert.
    *
    * Returns true if the circuit breaker was tripped.
    */
@@ -171,6 +177,7 @@ export class CircuitBreakerLive {
     this.errorTimestamps = [];
 
     await auditLogger.logKillSwitch(userId, 'Circuit breaker live reset');
+    await this.persist();
     console.log(`[CIRCUIT BREAKER LIVE] Reset by ${userId}`);
   }
 
@@ -189,6 +196,31 @@ export class CircuitBreakerLive {
       dailyLossPct: this.dailyLossPct,
       recentErrors,
     };
+  }
+
+  /** Load state from DB (idempotent — only runs once per instance) */
+  async hydrate(): Promise<void> {
+    if (this.hydrated) return;
+    this.hydrated = true;
+
+    try {
+      const db = createUntypedAdminClient();
+      const { data } = await db
+        .from('live_safety_state')
+        .select('active, activated_at, reason, metadata')
+        .eq('id', DB_ROW_ID)
+        .single();
+
+      if (data) {
+        this.tripped = data.active;
+        this.trippedAt = data.activated_at;
+        this.reason = data.reason;
+        this.consecutiveLosses = data.metadata?.consecutiveLosses ?? 0;
+        this.dailyLossPct = data.metadata?.dailyLossPct ?? 0;
+      }
+    } catch (err) {
+      console.error('[CircuitBreakerLive] hydrate failed:', err instanceof Error ? err.message : err);
+    }
   }
 
   // -------------------------------------------------------------------------
@@ -214,14 +246,17 @@ export class CircuitBreakerLive {
     // 1. Log to audit
     await auditLogger.logCircuitBreakerLive(resolvedUserId, reason);
 
-    // 2. Activate kill switch (cancels orders + closes positions)
+    // 2. Persist to DB
+    await this.persist();
+
+    // 3. Activate kill switch (cancels orders + closes positions)
     const report = await this.killSwitch.activate(
       resolvedUserId,
       `Circuit breaker live: ${reason}`,
       adapter,
     );
 
-    // 3. Send critical Telegram alert
+    // 4. Send critical Telegram alert
     try {
       const client = getTelegramClient();
       const lines = [
@@ -246,6 +281,29 @@ export class CircuitBreakerLive {
     } catch {
       // Don't fail if Telegram is down
       console.error('[CIRCUIT BREAKER LIVE] Failed to send Telegram alert');
+    }
+  }
+
+  /** Persist current state to DB */
+  private async persist(): Promise<void> {
+    try {
+      const db = createUntypedAdminClient();
+      await db
+        .from('live_safety_state')
+        .update({
+          active: this.tripped,
+          activated_at: this.trippedAt,
+          activated_by: 'system',
+          reason: this.reason,
+          metadata: {
+            consecutiveLosses: this.consecutiveLosses,
+            dailyLossPct: this.dailyLossPct,
+          },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', DB_ROW_ID);
+    } catch (err) {
+      console.error('[CircuitBreakerLive] persist failed:', err instanceof Error ? err.message : err);
     }
   }
 }

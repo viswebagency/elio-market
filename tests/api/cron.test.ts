@@ -60,7 +60,8 @@ vi.mock('@/lib/db/supabase/admin', () => ({
 
 vi.mock('@/services/execution/kill-switch', () => ({
   killSwitch: {
-    isActive: () => false,
+    isActive: () => Promise.resolve(false),
+    isActiveSync: () => false,
     activate: vi.fn(),
     deactivate: vi.fn(),
     getStatus: vi.fn(),

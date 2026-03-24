@@ -29,6 +29,16 @@ vi.mock('@/lib/telegram', () => ({
   })),
 }));
 
+// Mock DB for hydrate/persist
+vi.mock('@/lib/db/supabase/admin', () => ({
+  createUntypedAdminClient: () => ({
+    from: () => ({
+      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+    }),
+  }),
+}));
+
 function createMockKillSwitch(): KillSwitch {
   const ks = new KillSwitch();
   // Spy on activate to verify it's called

@@ -5,8 +5,9 @@
  * Saves a snapshot of each paper trading session's capital for equity curve tracking.
  * Also calculates daily P&L by comparing with yesterday's snapshot.
  *
- * Covers both Polymarket (paper_sessions → equity_snapshots) and
- * Crypto (crypto_paper_sessions → paper_trading_snapshots with area='crypto').
+ * Covers Polymarket (paper_sessions → equity_snapshots),
+ * Crypto paper (crypto_paper_sessions → paper_trading_snapshots),
+ * and Live trading (live_bankroll → live_equity_snapshots).
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -106,6 +107,32 @@ export async function GET(request: NextRequest) {
 
       if (error) {
         console.error(`[Cron/equity-snapshot] crypto ${cs.id}: ${error.message}`);
+        snapshotsSkipped++;
+      } else {
+        snapshotsCreated++;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 3. Live trading → live_equity_snapshots
+    // -----------------------------------------------------------------
+    const { data: liveBankrolls } = await db
+      .from('live_bankroll')
+      .select('user_id, total_capital, initial_capital');
+
+    for (const lb of liveBankrolls ?? []) {
+      const pnlPct = lb.initial_capital > 0
+        ? ((lb.total_capital - lb.initial_capital) / lb.initial_capital) * 100
+        : 0;
+
+      const { error } = await db.from('live_equity_snapshots').insert({
+        user_id: lb.user_id,
+        equity: lb.total_capital,
+        pnl_pct: pnlPct,
+      });
+
+      if (error) {
+        console.error(`[Cron/equity-snapshot] live ${lb.user_id}: ${error.message}`);
         snapshotsSkipped++;
       } else {
         snapshotsCreated++;

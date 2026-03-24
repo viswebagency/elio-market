@@ -1,10 +1,14 @@
 /**
  * Kill switch — emergency stop for all trading operations.
  * When activated, cancels all open orders and closes all positions.
+ *
+ * State is persisted in `live_safety_state` table so it survives
+ * Vercel cold starts.
  */
 
 import { CryptoAdapter, PlaceTradeResult, CancelOrderResult } from '@/plugins/crypto/adapter';
 import { auditLogger } from './audit-logger';
+import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 
 export interface KillSwitchReport {
   cancelledOrders: number;
@@ -19,20 +23,29 @@ export interface KillSwitchStatus {
   reason: string | null;
 }
 
+const DB_ROW_ID = 'kill_switch';
+
 export class KillSwitch {
   private active = false;
   private activatedAt: string | null = null;
   private activatedBy: string | null = null;
   private reason: string | null = null;
+  private hydrated = false;
 
-  /** Check if kill switch is active */
-  isActive(): boolean {
+  /** Check if kill switch is active — loads from DB on first call */
+  async isActive(): Promise<boolean> {
+    await this.hydrate();
+    return this.active;
+  }
+
+  /** Synchronous check — only use after hydrate() has been called */
+  isActiveSync(): boolean {
     return this.active;
   }
 
   /**
    * Activate the kill switch:
-   * 1. Set flag
+   * 1. Set flag + persist to DB
    * 2. Cancel all open orders
    * 3. Close all open positions (market sell)
    * 4. Log every action to audit
@@ -51,6 +64,7 @@ export class KillSwitch {
 
     console.error(`[KILL SWITCH] ACTIVATED by ${userId}: ${reason}`);
     await auditLogger.logKillSwitch(userId, reason);
+    await this.persist();
 
     const report: KillSwitchReport = {
       cancelledOrders: 0,
@@ -63,8 +77,6 @@ export class KillSwitch {
     }
 
     // Cancel all open orders
-    // When activeSymbols is provided, query per-symbol to avoid Binance's
-    // expensive global fetchOpenOrders rate limit.
     try {
       const symbols = activeSymbols ?? [undefined]; // undefined = global query
       for (const sym of symbols) {
@@ -144,6 +156,7 @@ export class KillSwitch {
     this.reason = null;
 
     await auditLogger.logKillSwitch(userId, 'Kill switch deactivated');
+    await this.persist();
   }
 
   /** Get current status */
@@ -154,6 +167,49 @@ export class KillSwitch {
       activatedBy: this.activatedBy,
       reason: this.reason,
     };
+  }
+
+  /** Load state from DB (idempotent — only runs once per instance) */
+  async hydrate(): Promise<void> {
+    if (this.hydrated) return;
+    this.hydrated = true;
+
+    try {
+      const db = createUntypedAdminClient();
+      const { data } = await db
+        .from('live_safety_state')
+        .select('active, activated_at, activated_by, reason')
+        .eq('id', DB_ROW_ID)
+        .single();
+
+      if (data) {
+        this.active = data.active;
+        this.activatedAt = data.activated_at;
+        this.activatedBy = data.activated_by;
+        this.reason = data.reason;
+      }
+    } catch (err) {
+      console.error('[KillSwitch] hydrate failed:', err instanceof Error ? err.message : err);
+    }
+  }
+
+  /** Persist current state to DB */
+  private async persist(): Promise<void> {
+    try {
+      const db = createUntypedAdminClient();
+      await db
+        .from('live_safety_state')
+        .update({
+          active: this.active,
+          activated_at: this.activatedAt,
+          activated_by: this.activatedBy,
+          reason: this.reason,
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', DB_ROW_ID);
+    } catch (err) {
+      console.error('[KillSwitch] persist failed:', err instanceof Error ? err.message : err);
+    }
   }
 }
 

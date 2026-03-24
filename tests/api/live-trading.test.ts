@@ -18,6 +18,16 @@ vi.mock('@/lib/db/supabase/server', () => ({
   })),
 }));
 
+// Mock admin DB for kill switch hydrate/persist
+vi.mock('@/lib/db/supabase/admin', () => ({
+  createUntypedAdminClient: () => ({
+    from: () => ({
+      select: () => ({ eq: () => ({ single: () => Promise.resolve({ data: null, error: null }) }) }),
+      update: () => ({ eq: () => Promise.resolve({ error: null }) }),
+    }),
+  }),
+}));
+
 vi.mock('@/services/execution/audit-logger', () => ({
   auditLogger: {
     logKillSwitch: vi.fn().mockResolvedValue(undefined),
@@ -70,32 +80,32 @@ function makeTrade(overrides: Partial<Trade> = {}): Trade {
 // ---------------------------------------------------------------------------
 
 describe('Live Trading API Logic', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     cancelAllPending();
     // Reset kill switch state
-    if (killSwitch.isActive()) {
-      killSwitch.deactivate('test');
+    if (await killSwitch.isActive()) {
+      await killSwitch.deactivate('test');
     }
   });
 
   describe('Kill Switch — activate/deactivate', () => {
     it('should activate kill switch', async () => {
-      expect(killSwitch.isActive()).toBe(false);
+      expect(await killSwitch.isActive()).toBe(false);
 
       const report = await killSwitch.activate('user-1', 'Web dashboard test');
 
-      expect(killSwitch.isActive()).toBe(true);
+      expect(await killSwitch.isActive()).toBe(true);
       expect(report.cancelledOrders).toBe(0); // No adapter
       expect(report.closedPositions).toBe(0);
     });
 
     it('should deactivate kill switch', async () => {
       await killSwitch.activate('user-1', 'Test');
-      expect(killSwitch.isActive()).toBe(true);
+      expect(await killSwitch.isActive()).toBe(true);
 
       await killSwitch.deactivate('user-1');
-      expect(killSwitch.isActive()).toBe(false);
+      expect(await killSwitch.isActive()).toBe(false);
     });
 
     it('should cancel all pending approvals when activated', async () => {

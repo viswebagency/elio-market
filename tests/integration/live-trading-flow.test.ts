@@ -219,10 +219,10 @@ describe('Live Trading Integration: Kill Switch blocks execution', () => {
 
   it('kill switch active → executor not called', async () => {
     await ks.activate('user-1', 'test activation');
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
 
     // Simulate what the cron does: check kill switch before evaluation
-    if (ks.isActive()) {
+    if (await ks.isActive()) {
       // Should skip — DO NOT call executor
       expect(executionService.execute).not.toHaveBeenCalled();
       return;
@@ -233,7 +233,7 @@ describe('Live Trading Integration: Kill Switch blocks execution', () => {
   });
 
   it('kill switch inactive → executor can run', async () => {
-    expect(ks.isActive()).toBe(false);
+    expect(await ks.isActive()).toBe(false);
 
     const strategy = createTestStrategy();
     const config: ExecutorConfig = {
@@ -620,7 +620,7 @@ describe('Live Trading Integration: Full Cron Tick Flow', () => {
 
   it('full flow: evaluate → execute → reconcile → circuit breaker check', async () => {
     // 1. Safety checks
-    expect(ks.isActive()).toBe(false);
+    expect(await ks.isActive()).toBe(false);
     expect(cb.isTripped).toBe(false);
 
     // 2. 2FA check
@@ -684,17 +684,17 @@ describe('Live Trading Integration: Full Cron Tick Flow', () => {
 
     // 7. Circuit breaker should NOT be tripped after normal execution
     expect(cb.isTripped).toBe(false);
-    expect(ks.isActive()).toBe(false);
+    expect(await ks.isActive()).toBe(false);
   });
 
   it('kill switch blocks entire flow', async () => {
     await ks.activate('system', 'manual activation');
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
 
     // Simulating cron: kill switch check should prevent any execution
     const executionService = createMockExecutionService();
     // In the cron, this check happens before any strategy evaluation
-    expect(ks.isActive()).toBe(true);
+    expect(await ks.isActive()).toBe(true);
     expect(executionService.execute).not.toHaveBeenCalled();
   });
 
