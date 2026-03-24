@@ -40,37 +40,13 @@ export async function GET(request: NextRequest) {
   const startTime = Date.now();
 
   try {
-    // DEBUG: direct DB query to diagnose session loading issue
-    const debugDb = createUntypedAdminClient();
-    const { data: debugSessions, error: debugError } = await debugDb
-      .from('crypto_paper_sessions')
-      .select('id, strategy_code, status')
-      .eq('status', 'running');
-    const debugInfo = {
-      dbUrl: process.env.NEXT_PUBLIC_SUPABASE_URL?.slice(0, 30) + '...',
-      hasServiceKey: !!process.env.SUPABASE_SERVICE_ROLE_KEY,
-      sessionsFound: debugSessions?.length ?? 0,
-      dbError: debugError?.message ?? null,
-      sessions: (debugSessions ?? []).map((s: { strategy_code: string; id: string }) => s.strategy_code),
-    };
-    console.log('[Cron/crypto-tick] DEBUG DB:', JSON.stringify(debugInfo));
-
     const manager = getCryptoPaperTradingManager();
 
     // Initialize adapter with timeout and retry
     await initializeAdapterWithRetry(manager);
 
-    // DEBUG: force load sessions from cron level
-    let loadedCount = 0;
-    let loadError: string | null = null;
-    try {
-      loadedCount = await manager.loadActiveSessions();
-    } catch (err) {
-      loadError = err instanceof Error ? err.message : String(err);
-    }
-    (debugInfo as Record<string, unknown>).managerLoadedCount = loadedCount;
-    (debugInfo as Record<string, unknown>).managerSessionsAfterLoad = manager.getActiveSessions().length;
-    (debugInfo as Record<string, unknown>).loadError = loadError;
+    // Load sessions from DB (Vercel cold start — in-memory map is empty)
+    await manager.loadActiveSessions();
 
     // Auto-start L1 strategies only on first-ever run (no sessions exist at all)
     const activeBefore = manager.getActiveSessions().length;
@@ -179,7 +155,7 @@ export async function GET(request: NextRequest) {
 
     console.log('[Cron/crypto-tick]', JSON.stringify(summary));
 
-    return NextResponse.json({ ok: true, summary, _debug: debugInfo });
+    return NextResponse.json({ ok: true, summary });
   } catch (error) {
     consecutiveFailures++;
     const message = error instanceof Error ? error.message : 'Errore sconosciuto';

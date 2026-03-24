@@ -14,12 +14,14 @@ vi.mock('@/lib/cron-auth', () => ({
 
 const mockTick = vi.fn();
 const mockInitializeAdapter = vi.fn();
+const mockLoadActiveSessions = vi.fn().mockResolvedValue(0);
 const mockGetActiveSessions = vi.fn().mockReturnValue([]);
 const mockAutoStartL1Sessions = vi.fn().mockResolvedValue([]);
 vi.mock('@/core/paper-trading/crypto-manager', () => ({
   getCryptoPaperTradingManager: () => ({
     tick: mockTick,
     initializeAdapter: mockInitializeAdapter,
+    loadActiveSessions: mockLoadActiveSessions,
     getActiveSessions: mockGetActiveSessions,
     autoStartL1Sessions: mockAutoStartL1Sessions,
     startRotatedSession: vi.fn().mockResolvedValue('new-rotated-id'),

@@ -713,7 +713,7 @@ export class CryptoPaperTradingManager {
 
     const { data: rows, error } = await db
       .from('crypto_paper_sessions')
-      .select('*')
+      .select('id, strategy_code, strategy_name, pairs, initial_capital, total_ticks, last_tick_at, started_at, status')
       .eq('status', 'running');
 
     if (error) {
@@ -723,49 +723,48 @@ export class CryptoPaperTradingManager {
 
     console.log(`[CryptoManager] loadActiveSessions: ${rows?.length ?? 0} running sessions in DB, ${this.sessions.size} in memory`);
 
-    if (!rows) return 0;
+    if (!rows || rows.length === 0) return 0;
 
     let loaded = 0;
     for (const row of rows) {
       try {
-      // Skip if already in memory
-      if (this.sessions.has(row.id)) {
-        console.log(`[CryptoManager] Session ${row.strategy_code} already in memory — skipping`);
-        continue;
-      }
+        // Skip if already in memory
+        if (this.sessions.has(row.id)) {
+          continue;
+        }
 
-      const seed = CRYPTO_STRATEGY_MAP[row.strategy_code];
-      if (!seed) {
-        console.warn(`[CryptoManager] Strategy ${row.strategy_code} not found in CRYPTO_STRATEGY_MAP — skipping session ${row.id}`);
-        continue;
-      }
+        const seed = CRYPTO_STRATEGY_MAP[row.strategy_code];
+        if (!seed) {
+          console.warn(`[CryptoManager] Strategy ${row.strategy_code} not found in CRYPTO_STRATEGY_MAP — skipping session ${row.id}`);
+          continue;
+        }
 
-      const strategy = parseCryptoSeed(seed);
+        const strategy = parseCryptoSeed(seed);
 
-      const config: ExecutorConfig = {
-        mode: 'paper',
-        initialBankroll: Number(row.initial_capital),
-        minConfidenceToEnter: 50,
-        maxOpenPositions: 5,
-        slippagePct: 0.5,
-        area: MarketArea.CRYPTO,
-      };
+        const config: ExecutorConfig = {
+          mode: 'paper',
+          initialBankroll: Number(row.initial_capital),
+          minConfidenceToEnter: 50,
+          maxOpenPositions: 5,
+          slippagePct: 0.5,
+          area: MarketArea.CRYPTO,
+        };
 
-      const executor = new StrategyExecutor(strategy, config);
+        const executor = new StrategyExecutor(strategy, config);
 
-      this.sessions.set(row.id, {
-        sessionId: row.id,
-        strategy,
-        strategySeed: seed,
-        executor,
-        pairs: row.pairs || [...seed.pairs],
-        initialCapital: Number(row.initial_capital),
-        totalTicks: row.total_ticks || 0,
-        lastTickAt: row.last_tick_at || null,
-        status: 'running',
-        startedAt: row.started_at,
-      });
-      loaded++;
+        this.sessions.set(row.id, {
+          sessionId: row.id,
+          strategy,
+          strategySeed: seed,
+          executor,
+          pairs: row.pairs || [...seed.pairs],
+          initialCapital: Number(row.initial_capital),
+          totalTicks: row.total_ticks || 0,
+          lastTickAt: row.last_tick_at || null,
+          status: 'running',
+          startedAt: row.started_at,
+        });
+        loaded++;
       } catch (err) {
         console.error(`[CryptoManager] Error loading session ${row.strategy_code} (${row.id}):`, err instanceof Error ? err.message : err);
       }
