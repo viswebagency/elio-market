@@ -216,9 +216,18 @@ export async function reconcileAndUpdate(
 
 async function defaultUpdateTrade(tradeId: string, data: Record<string, unknown>): Promise<void> {
   const supabase = createUntypedAdminClient();
+  // Map generic field names to live_trades column names
+  const mapped: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(data)) {
+    if (key === 'actual_price') mapped['actual_fill_price'] = value;
+    else if (key === 'fees') mapped['commission'] = value;
+    else if (key === 'fill_time') mapped['fill_time_ms'] = value;
+    else if (key === 'reconciled_at') mapped['updated_at'] = value;
+    else mapped[key] = value;
+  }
   const { error } = await supabase
-    .from('trades')
-    .update(data)
+    .from('live_trades')
+    .update(mapped)
     .eq('id', tradeId);
 
   if (error) {

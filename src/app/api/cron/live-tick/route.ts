@@ -188,6 +188,10 @@ export async function GET(request: NextRequest) {
             if (!executed || !result) {
               throw new Error('Trade rifiutato (approvazione negata o timeout)');
             }
+
+            // Persist trade to live_trades before reconciliation runs
+            await persistLiveTrade(trade, result, userId, strat.id as string);
+
             return result;
           },
         };
@@ -401,6 +405,31 @@ function createExecutionService(adapter: CryptoAdapter): LiveExecutionService {
       };
     },
   };
+}
+
+async function persistLiveTrade(
+  trade: { id: string; symbol: string; direction: Direction; size: number; metadata?: Record<string, unknown> },
+  execution: { externalOrderId: string; executedAt: string },
+  userId: string,
+  strategyId: string,
+): Promise<void> {
+  try {
+    const db = createUntypedAdminClient();
+    await db.from('live_trades').insert({
+      id: trade.id,
+      user_id: userId,
+      strategy_id: strategyId,
+      symbol: trade.symbol,
+      direction: trade.direction,
+      size: trade.size,
+      entry_price: trade.metadata?.expectedPrice ?? null,
+      broker_entry_order_id: execution.externalOrderId,
+      status: 'open',
+      executed_at: execution.executedAt,
+    });
+  } catch (err) {
+    console.error(`[Cron/live-tick] Failed to persist trade ${trade.id}: ${err instanceof Error ? err.message : err}`);
+  }
 }
 
 function escapeHtml(text: string): string {
