@@ -60,6 +60,11 @@ export async function GET(request: NextRequest) {
     // Initialize adapter with timeout and retry
     await initializeAdapterWithRetry(manager);
 
+    // DEBUG: force load sessions from cron level
+    const loadedCount = await manager.loadActiveSessions();
+    (debugInfo as Record<string, unknown>).managerLoadedCount = loadedCount;
+    (debugInfo as Record<string, unknown>).managerSessionsAfterLoad = manager.getActiveSessions().length;
+
     // Auto-start L1 strategies only on first-ever run (no sessions exist at all)
     const activeBefore = manager.getActiveSessions().length;
     let autoStarted: string[] = [];

@@ -708,7 +708,7 @@ export class CryptoPaperTradingManager {
   }
 
   /** Load active sessions from DB (for Vercel cold starts) */
-  private async loadActiveSessions(): Promise<void> {
+  async loadActiveSessions(): Promise<number> {
     const db = createUntypedAdminClient();
 
     const { data: rows, error } = await db
@@ -718,13 +718,14 @@ export class CryptoPaperTradingManager {
 
     if (error) {
       console.error('[CryptoManager] loadActiveSessions DB error:', error.message);
-      return;
+      return 0;
     }
 
     console.log(`[CryptoManager] loadActiveSessions: ${rows?.length ?? 0} running sessions in DB, ${this.sessions.size} in memory`);
 
-    if (!rows) return;
+    if (!rows) return 0;
 
+    let loaded = 0;
     for (const row of rows) {
       // Skip if already in memory
       if (this.sessions.has(row.id)) continue;
@@ -760,7 +761,11 @@ export class CryptoPaperTradingManager {
         status: 'running',
         startedAt: row.started_at,
       });
+      loaded++;
     }
+
+    console.log(`[CryptoManager] loadActiveSessions: loaded ${loaded} new sessions, total in memory: ${this.sessions.size}`);
+    return loaded;
   }
 
   private async fetchCryptoSnapshots(): Promise<MarketSnapshot[]> {
