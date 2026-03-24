@@ -203,7 +203,7 @@ function setupMockChain() {
     }
 
     // Live trading tables (return empty by default in paper-focused tests)
-    if (table === 'trades') {
+    if (table === 'live_trades') {
       chain.select = vi.fn(() => {
         const innerChain: Record<string, any> = {};
         for (const m of ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'limit']) {
@@ -370,7 +370,7 @@ describe('GET /api/cron/daily-summary (multi-area)', () => {
         chain.select = vi.fn(() => chain);
         chain.eq = vi.fn(() => ({ ...chain, count: 0, data: [] }));
       }
-      if (table === 'trades') {
+      if (table === 'live_trades') {
         chain.select = vi.fn(() => {
           const innerChain: Record<string, any> = {};
           for (const m of ['select', 'eq', 'neq', 'in', 'gte', 'lte', 'order', 'limit']) {

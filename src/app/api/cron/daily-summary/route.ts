@@ -228,9 +228,8 @@ async function buildLiveSummary(
 ): Promise<LiveTradingSummary> {
   // Query closed live trades for today
   const { data: liveTrades } = await db
-    .from('trades')
-    .select('asset_symbol, net_pnl, gross_pnl, commission, slippage, status, exited_at')
-    .eq('execution_type', 'live')
+    .from('live_trades')
+    .select('symbol, pnl, commission, slippage, status, exited_at')
     .neq('status', 'open')
     .gte('exited_at', startOfDay)
     .lte('exited_at', endOfDay)
@@ -238,9 +237,8 @@ async function buildLiveSummary(
 
   // All-time live trade stats
   const { data: allLiveTrades } = await db
-    .from('trades')
-    .select('net_pnl')
-    .eq('execution_type', 'live')
+    .from('live_trades')
+    .select('pnl')
     .neq('status', 'open');
 
   // Get bankroll info from live_bankroll table
@@ -256,13 +254,13 @@ async function buildLiveSummary(
   const allClosed = allLiveTrades ?? [];
 
   // Daily metrics
-  const dailyPnl = closedToday.reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
+  const dailyPnl = closedToday.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
   const dailyPnlPct = initialBankroll > 0 ? (dailyPnl / initialBankroll) * 100 : 0;
 
-  const totalPnl = allClosed.reduce((sum, t) => sum + (Number(t.net_pnl) || 0), 0);
+  const totalPnl = allClosed.reduce((sum, t) => sum + (Number(t.pnl) || 0), 0);
   const totalPnlPct = initialBankroll > 0 ? (totalPnl / initialBankroll) * 100 : 0;
 
-  const winning = closedToday.filter((t) => Number(t.net_pnl) > 0);
+  const winning = closedToday.filter((t) => Number(t.pnl) > 0);
   const winRate = closedToday.length > 0 ? winning.length / closedToday.length : 0;
 
   const totalFees = closedToday.reduce((sum, t) => sum + (Number(t.commission) || 0), 0);
@@ -278,13 +276,13 @@ async function buildLiveSummary(
   let bestTrade: LiveTradingSummary['bestTrade'] = undefined;
   let worstTrade: LiveTradingSummary['worstTrade'] = undefined;
   if (closedToday.length > 0) {
-    const sorted = [...closedToday].sort((a, b) => Number(b.net_pnl) - Number(a.net_pnl));
-    if (Number(sorted[0].net_pnl) > 0) {
-      bestTrade = { market: sorted[0].asset_symbol, pnl: Number(sorted[0].net_pnl) };
+    const sorted = [...closedToday].sort((a, b) => Number(b.pnl) - Number(a.pnl));
+    if (Number(sorted[0].pnl) > 0) {
+      bestTrade = { market: sorted[0].symbol, pnl: Number(sorted[0].pnl) };
     }
     const last = sorted[sorted.length - 1];
-    if (Number(last.net_pnl) < 0) {
-      worstTrade = { market: last.asset_symbol, pnl: Number(last.net_pnl) };
+    if (Number(last.pnl) < 0) {
+      worstTrade = { market: last.symbol, pnl: Number(last.pnl) };
     }
   }
 

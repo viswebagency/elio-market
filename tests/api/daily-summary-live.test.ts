@@ -107,15 +107,15 @@ const polymarketSessions = [
 ];
 
 const liveTrades = [
-  { asset_symbol: 'BTC/USDT', net_pnl: 50, gross_pnl: 55, commission: 3, slippage: 2, status: 'closed', exited_at: '2026-03-22T14:00:00Z' },
-  { asset_symbol: 'ETH/USDT', net_pnl: -20, gross_pnl: -15, commission: 3, slippage: 2, status: 'closed', exited_at: '2026-03-22T15:00:00Z' },
-  { asset_symbol: 'SOL/USDT', net_pnl: 30, gross_pnl: 35, commission: 3, slippage: 2, status: 'closed', exited_at: '2026-03-22T16:00:00Z' },
+  { symbol: 'BTC/USDT', pnl: 50, commission: 3, slippage: 2, status: 'closed', exited_at: '2026-03-22T14:00:00Z' },
+  { symbol: 'ETH/USDT', pnl: -20, commission: 3, slippage: 2, status: 'closed', exited_at: '2026-03-22T15:00:00Z' },
+  { symbol: 'SOL/USDT', pnl: 30, commission: 3, slippage: 2, status: 'closed', exited_at: '2026-03-22T16:00:00Z' },
 ];
 
 const allLiveTrades = [
   ...liveTrades,
-  { net_pnl: 100 },
-  { net_pnl: -40 },
+  { pnl: 100 },
+  { pnl: -40 },
 ];
 
 const bankrolls = [
@@ -183,7 +183,7 @@ function setupMockChainWithLive(liveTradesData: any[] = liveTrades, allLiveData:
       chain.eq = vi.fn(() => ({ ...chain, count: 0, data: [] }));
     }
 
-    if (table === 'trades') {
+    if (table === 'live_trades') {
       // Handle two different calls:
       // 1. Today's closed live trades (with neq and date filters)
       // 2. All-time live trades (without date filters, just neq)
