@@ -235,7 +235,8 @@ describe('GET /api/cron/tick', () => {
     const res = await handler(createMockRequest('/api/cron/tick'));
     const body = await res.json();
 
-    expect(res.status).toBe(500);
+    // Returns 200 to prevent Vercel from disabling the cron after consecutive failures
+    expect(res.status).toBe(200);
     expect(body.ok).toBe(false);
     expect(body.error).toContain('DB connection failed');
   });

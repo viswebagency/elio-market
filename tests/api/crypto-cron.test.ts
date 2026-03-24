@@ -211,7 +211,8 @@ describe('GET /api/cron/crypto-tick', () => {
     const res = await handler(createMockRequest());
     const body = await res.json();
 
-    expect(res.status).toBe(500);
+    // Returns 200 to prevent Vercel from disabling the cron after consecutive failures
+    expect(res.status).toBe(200);
     expect(body.ok).toBe(false);
     expect(body.error).toContain('Exchange API down');
     expect(mockSendMessage).toHaveBeenCalled();

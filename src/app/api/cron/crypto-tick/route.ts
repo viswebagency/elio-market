@@ -8,6 +8,7 @@
  * - Evaluates crypto strategies against current markets
  * - Opens/closes positions based on signals
  * - Sends Telegram alerts for new signals and circuit breakers
+ * - Tracks consecutive failures and notifies on persistent issues
  */
 
 import { NextRequest, NextResponse } from 'next/server';
@@ -23,6 +24,13 @@ export const dynamic = 'force-dynamic';
 export const maxDuration = 60; // Vercel Pro: max 60s
 
 const ELIO_CHAT_ID = 8659384895;
+const ADAPTER_INIT_TIMEOUT_MS = 20_000; // 20s max for Binance loadMarkets
+const ADAPTER_MAX_RETRIES = 2;
+
+/** Track consecutive failures to alert on persistent issues */
+let consecutiveFailures = 0;
+let lastFailureNotifiedAt = 0;
+const FAILURE_NOTIFY_COOLDOWN_MS = 30 * 60 * 1000; // 30 min between failure alerts
 
 export async function GET(request: NextRequest) {
   if (!verifyCronAuth(request)) {
@@ -34,8 +42,8 @@ export async function GET(request: NextRequest) {
   try {
     const manager = getCryptoPaperTradingManager();
 
-    // Initialize adapter if not already done
-    await manager.initializeAdapter('binance');
+    // Initialize adapter with timeout and retry
+    await initializeAdapterWithRetry(manager);
 
     // Auto-start L1 strategies only on first-ever run (no sessions exist at all)
     const activeBefore = manager.getActiveSessions().length;
@@ -132,25 +140,85 @@ export async function GET(request: NextRequest) {
     // Performance warnings — early alert before circuit breaker
     await checkCryptoPerformanceWarnings();
 
+    // Reset failure counter on success
+    consecutiveFailures = 0;
+
     console.log('[Cron/crypto-tick]', JSON.stringify(summary));
 
     return NextResponse.json({ ok: true, summary });
   } catch (error) {
+    consecutiveFailures++;
     const message = error instanceof Error ? error.message : 'Errore sconosciuto';
-    console.error('[Cron/crypto-tick] ERRORE:', message);
+    console.error(`[Cron/crypto-tick] ERRORE (failure #${consecutiveFailures}):`, message);
 
-    // Notify on Telegram if tick fails completely
-    try {
-      const client = getTelegramClient();
-      await client.sendMessage(
-        ELIO_CHAT_ID,
-        `\u26A0\uFE0F <b>Cron Crypto Tick Fallito</b>\n\n<code>${escapeHtml(message)}</code>\n\n<i>${new Date().toLocaleString('it-IT')}</i>`,
-      );
-    } catch {
-      // Don't fail the response if Telegram notification fails
+    // Notify on Telegram — always on first failure, then respect cooldown
+    const now = Date.now();
+    const shouldNotify = consecutiveFailures === 1
+      || consecutiveFailures === 3
+      || consecutiveFailures === 10
+      || (now - lastFailureNotifiedAt > FAILURE_NOTIFY_COOLDOWN_MS);
+
+    if (shouldNotify) {
+      lastFailureNotifiedAt = now;
+      try {
+        const client = getTelegramClient();
+        const urgency = consecutiveFailures >= 5 ? '\uD83D\uDED1' : '\u26A0\uFE0F';
+        await client.sendMessage(
+          ELIO_CHAT_ID,
+          `${urgency} <b>Cron Crypto Tick Fallito</b>\n\n` +
+          `<b>Errore:</b> <code>${escapeHtml(message)}</code>\n` +
+          `<b>Fallimenti consecutivi:</b> ${consecutiveFailures}\n` +
+          `<b>Durata:</b> ${Date.now() - startTime}ms\n\n` +
+          (consecutiveFailures >= 3
+            ? `<b>ATTENZIONE:</b> Il cron potrebbe essere disabilitato da Vercel dopo troppi fallimenti consecutivi.\n\n`
+            : '') +
+          `<i>${new Date().toLocaleString('it-IT')}</i>`,
+        );
+      } catch {
+        // Don't fail the response if Telegram notification fails
+      }
     }
 
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    // Return 200 instead of 500 to prevent Vercel from disabling the cron
+    // The error is tracked and notified via Telegram
+    return NextResponse.json({
+      ok: false,
+      error: message,
+      consecutiveFailures,
+      note: 'Returning 200 to keep cron active. Error notified via Telegram.',
+    });
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Adapter initialization with timeout + retry
+// ---------------------------------------------------------------------------
+
+async function initializeAdapterWithRetry(
+  manager: ReturnType<typeof getCryptoPaperTradingManager>,
+): Promise<void> {
+  for (let attempt = 1; attempt <= ADAPTER_MAX_RETRIES; attempt++) {
+    try {
+      await Promise.race([
+        manager.initializeAdapter('binance'),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error(
+            `Binance adapter init timeout after ${ADAPTER_INIT_TIMEOUT_MS}ms (attempt ${attempt}/${ADAPTER_MAX_RETRIES})`
+          )), ADAPTER_INIT_TIMEOUT_MS)
+        ),
+      ]);
+      return; // success
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(`[Cron/crypto-tick] Adapter init attempt ${attempt}/${ADAPTER_MAX_RETRIES} failed: ${msg}`);
+
+      if (attempt === ADAPTER_MAX_RETRIES) {
+        throw new Error(`Adapter init failed after ${ADAPTER_MAX_RETRIES} attempts: ${msg}`);
+      }
+
+      // Wait 2s before retry
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+    }
   }
 }
 

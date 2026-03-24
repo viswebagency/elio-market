@@ -120,13 +120,17 @@ export async function GET(request: NextRequest) {
       const client = getTelegramClient();
       await client.sendMessage(
         ELIO_CHAT_ID,
-        `\u26A0\uFE0F <b>Cron Tick Fallito</b>\n\n<code>${escapeHtml(message)}</code>\n\n<i>${new Date().toLocaleString('it-IT')}</i>`,
+        `\u26A0\uFE0F <b>Cron Polymarket Tick Fallito</b>\n\n` +
+        `<b>Errore:</b> <code>${escapeHtml(message)}</code>\n` +
+        `<b>Durata:</b> ${Date.now() - startTime}ms\n\n` +
+        `<i>${new Date().toLocaleString('it-IT')}</i>`,
       );
     } catch {
       // Don't fail the response if Telegram notification fails
     }
 
-    return NextResponse.json({ ok: false, error: message }, { status: 500 });
+    // Return 200 to prevent Vercel from disabling the cron after consecutive failures
+    return NextResponse.json({ ok: false, error: message });
   }
 }
 
