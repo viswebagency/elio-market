@@ -40,7 +40,9 @@ export class KillSwitch {
   async activate(
     userId: string,
     reason: string,
-    adapter?: CryptoAdapter
+    adapter?: CryptoAdapter,
+    /** Optional list of active trading symbols — avoids expensive global getOpenOrders() */
+    activeSymbols?: string[],
   ): Promise<KillSwitchReport> {
     this.active = true;
     this.activatedAt = new Date().toISOString();
@@ -61,29 +63,40 @@ export class KillSwitch {
     }
 
     // Cancel all open orders
+    // When activeSymbols is provided, query per-symbol to avoid Binance's
+    // expensive global fetchOpenOrders rate limit.
     try {
-      const openOrders = await adapter.getOpenOrders();
-      for (const order of openOrders) {
+      const symbols = activeSymbols ?? [undefined]; // undefined = global query
+      for (const sym of symbols) {
         try {
-          const result: CancelOrderResult = await adapter.cancelOrder(
-            order.id,
-            order.symbol
-          );
-          if (result.success) {
-            report.cancelledOrders++;
-            await auditLogger.logKillSwitch(userId, `Cancelled order ${order.id} on ${order.symbol}`);
-          } else {
-            report.errors.push(`Failed to cancel order ${order.id}: ${result.message}`);
+          const openOrders = await adapter.getOpenOrders(sym);
+          for (const order of openOrders) {
+            try {
+              const result: CancelOrderResult = await adapter.cancelOrder(
+                order.id,
+                order.symbol
+              );
+              if (result.success) {
+                report.cancelledOrders++;
+                await auditLogger.logKillSwitch(userId, `Cancelled order ${order.id} on ${order.symbol}`);
+              } else {
+                report.errors.push(`Failed to cancel order ${order.id}: ${result.message}`);
+              }
+            } catch (err) {
+              report.errors.push(
+                `Error cancelling order ${order.id}: ${err instanceof Error ? err.message : String(err)}`
+              );
+            }
           }
         } catch (err) {
           report.errors.push(
-            `Error cancelling order ${order.id}: ${err instanceof Error ? err.message : String(err)}`
+            `Error fetching open orders${sym ? ` for ${sym}` : ''}: ${err instanceof Error ? err.message : String(err)}`
           );
         }
       }
     } catch (err) {
       report.errors.push(
-        `Error fetching open orders: ${err instanceof Error ? err.message : String(err)}`
+        `Error in order cancellation: ${err instanceof Error ? err.message : String(err)}`
       );
     }
 

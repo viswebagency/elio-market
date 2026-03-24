@@ -124,6 +124,34 @@ describe('KillSwitch', () => {
     expect(report.errors.some((e: string) => e.includes('Position fetch failed'))).toBe(true);
   });
 
+  it('should query per-symbol when activeSymbols is provided', async () => {
+    const adapter = createMockAdapter({
+      getOpenOrders: vi.fn()
+        .mockResolvedValueOnce([{ id: 'order-1', symbol: 'BTC/USDT', side: 'buy', amount: 0.01 }])
+        .mockResolvedValueOnce([{ id: 'order-2', symbol: 'ETH/USDT', side: 'buy', amount: 1.5 }]),
+    });
+
+    const report = await ks.activate('user-1', 'per-symbol', adapter, ['BTC/USDT', 'ETH/USDT']);
+
+    expect(report.cancelledOrders).toBe(2);
+    expect(adapter.getOpenOrders).toHaveBeenCalledTimes(2);
+    expect(adapter.getOpenOrders).toHaveBeenCalledWith('BTC/USDT');
+    expect(adapter.getOpenOrders).toHaveBeenCalledWith('ETH/USDT');
+  });
+
+  it('should continue other symbols if one symbol fails in per-symbol mode', async () => {
+    const adapter = createMockAdapter({
+      getOpenOrders: vi.fn()
+        .mockRejectedValueOnce(new Error('BTC pair down'))
+        .mockResolvedValueOnce([{ id: 'order-2', symbol: 'ETH/USDT', side: 'buy', amount: 1.5 }]),
+    });
+
+    const report = await ks.activate('user-1', 'partial', adapter, ['BTC/USDT', 'ETH/USDT']);
+
+    expect(report.cancelledOrders).toBe(1);
+    expect(report.errors.some((e: string) => e.includes('BTC pair down'))).toBe(true);
+  });
+
   it('should deactivate and reset state', async () => {
     await ks.activate('user-1', 'test');
     expect(ks.isActive()).toBe(true);
