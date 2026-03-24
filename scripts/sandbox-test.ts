@@ -309,7 +309,7 @@ async function step6_killSwitch(): Promise<boolean> {
 
     check(6, 'cancelledOrders >= 2', report.cancelledOrders >= 2,
       `cancelled: ${report.cancelledOrders}`);
-    check(6, 'Kill switch attivo', ks.isActive(), `active: ${ks.isActive()}`);
+    check(6, 'Kill switch attivo', await ks.isActive(), `active: ${await ks.isActive()}`);
 
     printJson('KillSwitchReport', report);
 

@@ -409,7 +409,7 @@ function createExecutionService(adapter: CryptoAdapter): LiveExecutionService {
 
 async function persistLiveTrade(
   trade: { id: string; symbol: string; direction: Direction; size: number; metadata?: Record<string, unknown> },
-  execution: { externalOrderId: string; executedAt: string },
+  execution: { externalOrderId: string; executedAt?: string },
   userId: string,
   strategyId: string,
 ): Promise<void> {
