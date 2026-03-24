@@ -61,9 +61,16 @@ export async function GET(request: NextRequest) {
     await initializeAdapterWithRetry(manager);
 
     // DEBUG: force load sessions from cron level
-    const loadedCount = await manager.loadActiveSessions();
+    let loadedCount = 0;
+    let loadError: string | null = null;
+    try {
+      loadedCount = await manager.loadActiveSessions();
+    } catch (err) {
+      loadError = err instanceof Error ? err.message : String(err);
+    }
     (debugInfo as Record<string, unknown>).managerLoadedCount = loadedCount;
     (debugInfo as Record<string, unknown>).managerSessionsAfterLoad = manager.getActiveSessions().length;
+    (debugInfo as Record<string, unknown>).loadError = loadError;
 
     // Auto-start L1 strategies only on first-ever run (no sessions exist at all)
     const activeBefore = manager.getActiveSessions().length;
