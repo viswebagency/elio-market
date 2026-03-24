@@ -727,8 +727,12 @@ export class CryptoPaperTradingManager {
 
     let loaded = 0;
     for (const row of rows) {
+      try {
       // Skip if already in memory
-      if (this.sessions.has(row.id)) continue;
+      if (this.sessions.has(row.id)) {
+        console.log(`[CryptoManager] Session ${row.strategy_code} already in memory — skipping`);
+        continue;
+      }
 
       const seed = CRYPTO_STRATEGY_MAP[row.strategy_code];
       if (!seed) {
@@ -762,6 +766,9 @@ export class CryptoPaperTradingManager {
         startedAt: row.started_at,
       });
       loaded++;
+      } catch (err) {
+        console.error(`[CryptoManager] Error loading session ${row.strategy_code} (${row.id}):`, err instanceof Error ? err.message : err);
+      }
     }
 
     console.log(`[CryptoManager] loadActiveSessions: loaded ${loaded} new sessions, total in memory: ${this.sessions.size}`);
