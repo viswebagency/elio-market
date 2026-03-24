@@ -231,7 +231,11 @@ export class CryptoPaperTradingManager {
     // Reload sessions from DB (Vercel may have restarted)
     await this.loadActiveSessions();
 
+    console.log(`[CryptoManager] tick: ${this.sessions.size} sessions in memory, adapter=${!!this.adapter}`);
+
     const snapshots = await this.fetchCryptoSnapshots();
+    console.log(`[CryptoManager] tick: ${snapshots.length} market snapshots fetched`);
+
     const results: CryptoTickResult[] = [];
 
     for (const [sessionId, session] of this.sessions) {
@@ -707,10 +711,17 @@ export class CryptoPaperTradingManager {
   private async loadActiveSessions(): Promise<void> {
     const db = createUntypedAdminClient();
 
-    const { data: rows } = await db
+    const { data: rows, error } = await db
       .from('crypto_paper_sessions')
       .select('*')
       .eq('status', 'running');
+
+    if (error) {
+      console.error('[CryptoManager] loadActiveSessions DB error:', error.message);
+      return;
+    }
+
+    console.log(`[CryptoManager] loadActiveSessions: ${rows?.length ?? 0} running sessions in DB, ${this.sessions.size} in memory`);
 
     if (!rows) return;
 
@@ -719,7 +730,10 @@ export class CryptoPaperTradingManager {
       if (this.sessions.has(row.id)) continue;
 
       const seed = CRYPTO_STRATEGY_MAP[row.strategy_code];
-      if (!seed) continue;
+      if (!seed) {
+        console.warn(`[CryptoManager] Strategy ${row.strategy_code} not found in CRYPTO_STRATEGY_MAP — skipping session ${row.id}`);
+        continue;
+      }
 
       const strategy = parseCryptoSeed(seed);
 
