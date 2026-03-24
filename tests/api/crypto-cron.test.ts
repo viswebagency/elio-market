@@ -257,9 +257,10 @@ describe('GET /api/cron/crypto-tick', () => {
     expect(body.summary.autoStartSkipped).toBeGreaterThan(0);
   });
 
-  it('does NOT auto-start if stopped sessions exist for L1 strategies', async () => {
+  it('DOES auto-start if only stopped sessions exist (recovery after crash)', async () => {
     (verifyCronAuth as any).mockReturnValue(true);
     mockGetActiveSessions.mockReturnValue([]);
+    mockAutoStartL1Sessions.mockResolvedValue(['session-new']);
     mockTick.mockResolvedValue([]);
 
     setupSupabaseMock({
@@ -273,8 +274,9 @@ describe('GET /api/cron/crypto-tick', () => {
     const body = await res.json();
 
     expect(res.status).toBe(200);
-    expect(mockAutoStartL1Sessions).not.toHaveBeenCalled();
-    expect(body.summary.autoStartSkipped).toBeGreaterThan(0);
+    // Stopped sessions no longer block auto-start (only paused does)
+    expect(mockAutoStartL1Sessions).toHaveBeenCalled();
+    expect(body.summary.autoStarted).toBeGreaterThan(0);
   });
 
   it('auto-starts only when NO sessions exist at all (first run)', async () => {
@@ -367,11 +369,11 @@ describe('GET /api/cron/crypto-tick', () => {
     const body = await res.json();
 
     expect(body.summary.autoStartSkippedDetails).toBeDefined();
-    expect(body.summary.autoStartSkippedDetails.length).toBe(2);
+    // Only paused sessions block auto-start now (stopped sessions are safe to restart)
+    expect(body.summary.autoStartSkippedDetails.length).toBe(1);
     expect(body.summary.autoStartSkippedDetails).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ code: 'CR-C01', status: 'paused' }),
-        expect.objectContaining({ code: 'CR-M02b', status: 'stopped' }),
       ]),
     );
   });

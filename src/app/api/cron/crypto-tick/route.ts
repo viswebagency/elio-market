@@ -67,19 +67,26 @@ export async function GET(request: NextRequest) {
         }
       }
 
-      // Strategies with paused/stopped sessions — do NOT restart
-      // (includes sessions in cooldown waiting for auto-rotation)
-      autoStartSkipped = [...existingByCode.entries()]
-        .filter(([, status]) => status === 'paused' || status === 'stopped')
+      // Strategies with paused sessions — do NOT restart (in cooldown for auto-rotation)
+      const pausedStrategies = [...existingByCode.entries()]
+        .filter(([, status]) => status === 'paused')
         .map(([code, status]) => ({ code, status }));
 
-      // Only auto-start if there are strategies with ZERO sessions
+      autoStartSkipped = pausedStrategies;
+
+      // Strategies with ZERO sessions or ONLY stopped sessions (safe to restart)
       const strategiesWithNoSession = CRYPTO_L1_STRATEGY_CODES.filter(
         (code) => !existingByCode.has(code),
       );
+      const strategiesOnlyStopped = CRYPTO_L1_STRATEGY_CODES.filter(
+        (code) => existingByCode.get(code) === 'stopped',
+      );
 
-      if (strategiesWithNoSession.length > 0 && autoStartSkipped.length === 0) {
-        // True first run — no sessions exist at all, safe to auto-start
+      // Auto-start if: no paused sessions blocking AND there are strategies to start
+      const canAutoStart = pausedStrategies.length === 0
+        && (strategiesWithNoSession.length > 0 || strategiesOnlyStopped.length > 0);
+
+      if (canAutoStart) {
         autoStarted = await manager.autoStartL1Sessions();
 
         if (autoStarted.length > 0) {
