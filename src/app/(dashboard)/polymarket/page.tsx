@@ -1,9 +1,52 @@
+/**
+ * Polymarket dashboard — paper trading + browser mercati predittivi.
+ * AreaDashboard mostra metriche e sessioni, PolymarketBrowser mostra mercati live.
+ */
+
 'use client';
 
 import { useEffect, useState, useCallback } from 'react';
+import { AreaDashboard } from '@/components/paper-trading/AreaDashboard';
 import MarketCard from '@/components/polymarket/MarketCard';
 import MarketFilters from '@/components/polymarket/MarketFilters';
 import MarketDetail from '@/components/polymarket/MarketDetail';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+
+export default function PolymarketPage() {
+  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
+
+  // Blocca scroll body quando il dettaglio e' aperto
+  useEffect(() => {
+    if (selectedMarketId) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [selectedMarketId]);
+
+  return (
+    <>
+      <AreaDashboard area="polymarket">
+        <PolymarketBrowser onSelectMarket={setSelectedMarketId} />
+      </AreaDashboard>
+
+      {/* Detail Modal */}
+      {selectedMarketId && (
+        <MarketDetail
+          marketId={selectedMarketId}
+          onClose={() => setSelectedMarketId(null)}
+        />
+      )}
+    </>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Types
+// ---------------------------------------------------------------------------
 
 interface Market {
   id: string;
@@ -20,13 +63,19 @@ interface Market {
   closed: boolean;
 }
 
-export default function PolymarketPage() {
+// ---------------------------------------------------------------------------
+// Market Browser
+// ---------------------------------------------------------------------------
+
+function PolymarketBrowser({
+  onSelectMarket,
+}: {
+  onSelectMarket: (id: string) => void;
+}) {
   const [markets, setMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedMarketId, setSelectedMarketId] = useState<string | null>(null);
 
-  // Filtri
   const [category, setCategory] = useState('');
   const [sortBy, setSortBy] = useState('volume24hr');
   const [minVolume, setMinVolume] = useState('0');
@@ -35,10 +84,7 @@ export default function PolymarketPage() {
     setLoading(true);
     setError(null);
     try {
-      const params = new URLSearchParams({
-        limit: '40',
-        sortBy,
-      });
+      const params = new URLSearchParams({ limit: '40', sortBy });
       if (category) params.set('category', category);
       if (minVolume !== '0') params.set('minVolume', minVolume);
 
@@ -57,49 +103,25 @@ export default function PolymarketPage() {
     fetchMarkets();
   }, [fetchMarkets]);
 
-  // Blocca scroll body quando il dettaglio e' aperto
-  useEffect(() => {
-    if (selectedMarketId) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = '';
-    }
-    return () => {
-      document.body.style.overflow = '';
-    };
-  }, [selectedMarketId]);
-
   return (
-    <div className="min-h-screen bg-gray-950">
-      {/* Header */}
-      <header className="sticky top-0 z-40 bg-gray-950/90 backdrop-blur-md border-b border-gray-800">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-            <div>
-              <h1 className="text-2xl font-bold text-white tracking-tight">
-                Polymarket
-              </h1>
-              <p className="text-sm text-gray-500 mt-0.5">
-                Mercati predittivi in tempo reale
-              </p>
-            </div>
-            <MarketFilters
-              category={category}
-              sortBy={sortBy}
-              minVolume={minVolume}
-              onCategoryChange={setCategory}
-              onSortByChange={setSortBy}
-              onMinVolumeChange={setMinVolume}
-            />
-          </div>
+    <Card>
+      <CardHeader>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <CardTitle>Mercati Predittivi — Live</CardTitle>
+          <MarketFilters
+            category={category}
+            sortBy={sortBy}
+            minVolume={minVolume}
+            onCategoryChange={setCategory}
+            onSortByChange={setSortBy}
+            onMinVolumeChange={setMinVolume}
+          />
         </div>
-      </header>
-
-      {/* Content */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6">
+      </CardHeader>
+      <CardContent>
         {/* Stats bar */}
         {!loading && !error && markets.length > 0 && (
-          <div className="flex items-center gap-4 mb-6 text-xs text-gray-500">
+          <div className="flex items-center gap-4 mb-4 text-xs text-gray-500">
             <span>
               <span className="font-mono text-gray-300">{markets.length}</span> mercati
             </span>
@@ -115,9 +137,9 @@ export default function PolymarketPage() {
 
         {/* Loading */}
         {loading && (
-          <div className="flex items-center justify-center py-24">
+          <div className="flex items-center justify-center py-16">
             <div className="flex items-center gap-3 text-gray-400">
-              <div className="w-5 h-5 border-2 border-prediction-500 border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
               <span className="text-sm">Caricamento mercati...</span>
             </div>
           </div>
@@ -125,7 +147,7 @@ export default function PolymarketPage() {
 
         {/* Error */}
         {error && !loading && (
-          <div className="flex flex-col items-center justify-center py-24 gap-4">
+          <div className="flex flex-col items-center justify-center py-16 gap-4">
             <p className="text-red-400 text-sm">{error}</p>
             <button
               onClick={fetchMarkets}
@@ -138,7 +160,7 @@ export default function PolymarketPage() {
 
         {/* Empty */}
         {!loading && !error && markets.length === 0 && (
-          <div className="flex flex-col items-center justify-center py-24 text-gray-500">
+          <div className="flex flex-col items-center justify-center py-16 text-gray-500">
             <p className="text-sm">Nessun mercato trovato con i filtri selezionati</p>
           </div>
         )}
@@ -159,20 +181,12 @@ export default function PolymarketPage() {
                 liquidity={m.liquidity}
                 endDate={m.endDate}
                 image={m.image}
-                onClick={setSelectedMarketId}
+                onClick={onSelectMarket}
               />
             ))}
           </div>
         )}
-      </main>
-
-      {/* Detail Modal */}
-      {selectedMarketId && (
-        <MarketDetail
-          marketId={selectedMarketId}
-          onClose={() => setSelectedMarketId(null)}
-        />
-      )}
-    </div>
+      </CardContent>
+    </Card>
   );
 }

@@ -1,6 +1,6 @@
 /**
  * /dashboard/paper-trading — Vista unificata di tutte le sessioni paper trading.
- * Polymarket + Crypto con filtri, azioni, equity curve e auto-refresh 30s.
+ * 5 aree: Polymarket + Crypto + Azioni + Betfair + Forex con filtri, equity curve e auto-refresh 30s.
  */
 
 'use client';
@@ -15,7 +15,7 @@ import { EquityCurve } from '@/components/paper-trading/equity-curve';
 // Types (mirror API response)
 // ---------------------------------------------------------------------------
 
-type AreaFilter = 'all' | 'polymarket' | 'crypto';
+type AreaFilter = 'all' | 'polymarket' | 'crypto' | 'stocks' | 'betfair' | 'forex';
 
 interface SessionSnapshot {
   timestamp: string;
@@ -25,7 +25,7 @@ interface SessionSnapshot {
 
 interface UnifiedSession {
   id: string;
-  area: 'polymarket' | 'crypto';
+  area: 'polymarket' | 'crypto' | 'stocks' | 'betfair' | 'forex';
   strategyCode: string;
   strategyName: string;
   status: string;
@@ -40,6 +40,8 @@ interface UnifiedSession {
   startedAt: string;
   isCircuitBroken: boolean;
   pairs?: string[];
+  tickers?: string[];
+  eventTypes?: string[];
   snapshots?: SessionSnapshot[];
 }
 
@@ -59,6 +61,9 @@ interface OverviewData {
   byArea: {
     polymarket: AreaBreakdown;
     crypto: AreaBreakdown;
+    stocks: AreaBreakdown;
+    betfair: AreaBreakdown;
+    forex: AreaBreakdown;
   };
   sessions: UnifiedSession[];
 }
@@ -70,11 +75,17 @@ interface OverviewData {
 const AREA_COLORS: Record<string, string> = {
   polymarket: '#8B5CF6',
   crypto: '#F97316',
+  stocks: '#10B981',
+  betfair: '#F59E0B',
+  forex: '#3B82F6',
 };
 
 const AREA_LABELS: Record<string, string> = {
   polymarket: 'Polymarket',
   crypto: 'Crypto',
+  stocks: 'Azioni',
+  betfair: 'Betfair',
+  forex: 'Forex',
 };
 
 function pnlClass(value: number): string {
@@ -143,10 +154,13 @@ export default function PaperTradingDashboard() {
   const handleStop = async (sessionId: string, area: string) => {
     setActionLoading(sessionId);
     try {
-      const endpoint =
-        area === 'crypto'
-          ? '/api/paper-trading/crypto/stop'
-          : '/api/paper-trading/stop';
+      const areaEndpoints: Record<string, string> = {
+        crypto: '/api/paper-trading/crypto/stop',
+        stocks: '/api/paper-trading/stocks/stop',
+        betfair: '/api/paper-trading/betfair/stop',
+        forex: '/api/paper-trading/forex/stop',
+      };
+      const endpoint = areaEndpoints[area] ?? '/api/paper-trading/stop';
       await fetch(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -201,7 +215,7 @@ export default function PaperTradingDashboard() {
         <div>
           <h1 className="text-2xl font-bold text-gray-100">Paper Trading</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Vista unificata — Polymarket + Crypto
+            Vista unificata — Polymarket + Crypto + Azioni + Betfair + Forex
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -270,8 +284,8 @@ export default function PaperTradingDashboard() {
 
       {/* Area breakdown */}
       {data?.byArea && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {(['polymarket', 'crypto'] as const).map((area) => {
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+          {(['polymarket', 'crypto', 'stocks', 'betfair', 'forex'] as const).map((area) => {
             const b = data.byArea[area];
             return (
               <div
@@ -306,7 +320,7 @@ export default function PaperTradingDashboard() {
 
       {/* Filters */}
       <div className="flex items-center gap-2">
-        {(['all', 'polymarket', 'crypto'] as const).map((f) => (
+        {(['all', 'polymarket', 'crypto', 'stocks', 'betfair', 'forex'] as const).map((f) => (
           <Button
             key={f}
             variant={areaFilter === f ? 'primary' : 'ghost'}
@@ -470,6 +484,11 @@ function SessionCard({
                 {s.pairs && s.pairs.length > 0 && (
                   <span className="text-xs text-gray-500">
                     Pairs: {s.pairs.join(', ')}
+                  </span>
+                )}
+                {s.tickers && s.tickers.length > 0 && (
+                  <span className="text-xs text-gray-500">
+                    Ticker: {s.tickers.join(', ')}
                   </span>
                 )}
                 <Button

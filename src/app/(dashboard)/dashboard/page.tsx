@@ -1,6 +1,6 @@
 /**
- * Meta dashboard — overview of all areas, key metrics, recent activity.
- * Fetches real data from paper trading API.
+ * Meta dashboard — overview of all 5 areas, key metrics, recent activity.
+ * Fetches real data from unified paper trading overview API.
  */
 
 'use client';
@@ -8,58 +8,114 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { MARKET_AREAS_LIST } from '@/core/constants/market-areas';
+import { EquityCurve } from '@/components/paper-trading/equity-curve';
 
 // ---------------------------------------------------------------------------
-// Types
+// Types (mirror unified API response)
 // ---------------------------------------------------------------------------
 
-interface SessionMetrics {
+interface SessionSnapshot {
+  timestamp: string;
+  equity: number;
+  pnlPct: number;
+}
+
+interface UnifiedSession {
+  id: string;
+  area: 'polymarket' | 'crypto' | 'stocks' | 'betfair' | 'forex';
+  strategyCode: string;
+  strategyName: string;
+  status: string;
   initialCapital: number;
   currentCapital: number;
   totalPnl: number;
   totalPnlPct: number;
   maxDrawdownPct: number;
   totalTicks: number;
+  openPositions: number;
   lastTickAt: string | null;
-}
-
-interface Position {
-  marketName: string;
-  entryPrice: number;
-  currentPrice: number;
-  unrealizedPnl: number;
-  unrealizedPnlPct: number;
-  stake: number;
-}
-
-interface Trade {
-  action: string;
-  marketName: string;
-  netPnl: number;
-  returnPct: number;
-  executedAt: string;
-}
-
-interface Session {
-  id: string;
-  strategyName: string;
-  strategyCode: string;
-  status: string;
-  metrics: SessionMetrics;
+  startedAt: string;
   isCircuitBroken: boolean;
-  openPositions: Position[];
-  recentTrades: Trade[];
+  snapshots?: SessionSnapshot[];
 }
 
-interface Overview {
+interface AreaBreakdown {
+  capital: number;
+  pnl: number;
+  sessions: number;
+}
+
+interface OverviewData {
   totalCapital: number;
   totalPnl: number;
-  totalPnlToday: number;
+  totalPnlPct: number;
   activeSessions: number;
   pausedSessions: number;
   totalOpenPositions: number;
-  sessions: Session[];
+  byArea: {
+    polymarket: AreaBreakdown;
+    crypto: AreaBreakdown;
+    stocks: AreaBreakdown;
+    betfair: AreaBreakdown;
+    forex: AreaBreakdown;
+  };
+  sessions: UnifiedSession[];
+}
+
+interface AiStats {
+  totalCostUsd: number;
+  todayCostUsd: number;
+  dailyBudgetEur: number;
+  totalTokensUsed: number;
+  totalAnalyses: number;
+  totalRequests: number;
+  cacheHits: number;
+  hitRate: number;
+  estimatedSavingsUsd: number;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const AREA_COLORS: Record<string, string> = {
+  polymarket: '#8B5CF6',
+  crypto: '#F97316',
+  stocks: '#10B981',
+  betfair: '#F59E0B',
+  forex: '#3B82F6',
+};
+
+const AREA_LABELS: Record<string, string> = {
+  polymarket: 'Polymarket',
+  crypto: 'Crypto',
+  stocks: 'Azioni',
+  betfair: 'Betfair',
+  forex: 'Forex',
+};
+
+const AREA_LINKS: Record<string, string> = {
+  polymarket: '/polymarket',
+  crypto: '/crypto',
+  stocks: '/stocks',
+  betfair: '/betfair',
+  forex: '/forex',
+};
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+function pnlClass(value: number): string {
+  return value >= 0 ? 'text-emerald-400' : 'text-red-400';
+}
+
+function formatPnl(value: number): string {
+  return `${value >= 0 ? '+' : ''}$${Math.abs(value).toFixed(2)}`;
+}
+
+function formatPct(value: number): string {
+  return `${value >= 0 ? '+' : ''}${value.toFixed(2)}%`;
 }
 
 // ---------------------------------------------------------------------------
@@ -67,30 +123,20 @@ interface Overview {
 // ---------------------------------------------------------------------------
 
 export default function DashboardPage() {
-  const [data, setData] = useState<Overview | null>(null);
+  const [data, setData] = useState<OverviewData | null>(null);
   const [loading, setLoading] = useState(true);
   const [lastRefresh, setLastRefresh] = useState<Date | null>(null);
-  const [aiStats, setAiStats] = useState<{
-    totalCostUsd: number;
-    todayCostUsd: number;
-    dailyBudgetEur: number;
-    totalTokensUsed: number;
-    totalAnalyses: number;
-    totalRequests: number;
-    cacheHits: number;
-    hitRate: number;
-    estimatedSavingsUsd: number;
-  } | null>(null);
+  const [aiStats, setAiStats] = useState<AiStats | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
-      const [statusRes, kbRes] = await Promise.all([
-        fetch('/api/paper-trading/status'),
+      const [overviewRes, kbRes] = await Promise.all([
+        fetch('/api/paper-trading/overview?area=all&snapshots=true&snapshotLimit=50'),
         fetch('/api/kb/stats'),
       ]);
-      const json = await statusRes.json();
+      const json = await overviewRes.json();
       if (json.ok !== false) {
-        setData(json);
+        setData(json as OverviewData);
       }
       const kbJson = await kbRes.json();
       if (kbJson.ok && kbJson.stats) {
@@ -106,7 +152,7 @@ export default function DashboardPage() {
 
   useEffect(() => {
     fetchData();
-    const interval = setInterval(fetchData, 60_000); // Refresh every 60s
+    const interval = setInterval(fetchData, 60_000);
     return () => clearInterval(interval);
   }, [fetchData]);
 
@@ -118,25 +164,15 @@ export default function DashboardPage() {
     );
   }
 
-  const pnlColor = (data?.totalPnl ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400';
-  const pnlSign = (data?.totalPnl ?? 0) >= 0 ? '+' : '';
-
-  // Count strategies per area
-  const polymarketSessions = data?.sessions ?? [];
-  const polymarketPnl = polymarketSessions.reduce((s, sess) => s + sess.metrics.totalPnl, 0);
-
-  // Top performing and worst performing
-  const sorted = [...(data?.sessions ?? [])].sort(
-    (a, b) => b.metrics.totalPnlPct - a.metrics.totalPnlPct,
+  const sessions = data?.sessions ?? [];
+  const activeSessions = sessions.filter(
+    (s) => s.status === 'running' || s.status === 'paused',
+  );
+  const sorted = [...activeSessions].sort(
+    (a, b) => b.totalPnlPct - a.totalPnlPct,
   );
   const topStrategy = sorted[0] ?? null;
-  const worstStrategy = sorted[sorted.length - 1] ?? null;
-
-  // Recent trades across all sessions
-  const allTrades = (data?.sessions ?? [])
-    .flatMap((s) => s.recentTrades.map((t) => ({ ...t, strategyCode: s.strategyCode })))
-    .sort((a, b) => new Date(b.executedAt).getTime() - new Date(a.executedAt).getTime())
-    .slice(0, 10);
+  const worstStrategy = sorted.length > 1 ? sorted[sorted.length - 1] : null;
 
   return (
     <div className="space-y-6">
@@ -145,7 +181,7 @@ export default function DashboardPage() {
         <div>
           <h1 className="text-2xl font-bold text-gray-100">Dashboard</h1>
           <p className="text-sm text-gray-400 mt-1">
-            Panoramica completa — paper trading attivo
+            Panoramica completa — 5 aree operative
           </p>
         </div>
         {lastRefresh && (
@@ -156,22 +192,20 @@ export default function DashboardPage() {
       </div>
 
       {/* Key metrics */}
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <MetricCard
           label="Capitale totale"
           value={`$${(data?.totalCapital ?? 0).toFixed(2)}`}
-          sub={`${pnlSign}${(data?.totalPnl ?? 0).toFixed(2)}$`}
-          subColor={pnlColor}
         />
         <MetricCard
-          label="P&L oggi"
-          value={`${(data?.totalPnlToday ?? 0) >= 0 ? '+' : ''}$${Math.abs(data?.totalPnlToday ?? 0).toFixed(2)}`}
-          valueColor={(data?.totalPnlToday ?? 0) >= 0 ? 'text-emerald-400' : 'text-red-400'}
-          sub={`Totale: ${pnlSign}$${Math.abs(data?.totalPnl ?? 0).toFixed(2)}`}
-          subColor={pnlColor}
+          label="P&L totale"
+          value={formatPnl(data?.totalPnl ?? 0)}
+          valueColor={pnlClass(data?.totalPnl ?? 0)}
+          sub={formatPct(data?.totalPnlPct ?? 0)}
+          subColor={pnlClass(data?.totalPnlPct ?? 0)}
         />
         <MetricCard
-          label="Strategie attive"
+          label="Sessioni attive"
           value={String(data?.activeSessions ?? 0)}
           sub={data?.pausedSessions ? `${data.pausedSessions} in pausa` : undefined}
           subColor="text-amber-400"
@@ -179,6 +213,12 @@ export default function DashboardPage() {
         <MetricCard
           label="Posizioni aperte"
           value={String(data?.totalOpenPositions ?? 0)}
+        />
+        <MetricCard
+          label="Auto-refresh"
+          value="60s"
+          sub="Aggiornamento automatico"
+          subColor="text-gray-500"
         />
       </div>
 
@@ -196,7 +236,7 @@ export default function DashboardPage() {
                 <span className={`${aiStats.todayCostUsd * 0.92 > aiStats.dailyBudgetEur * 0.8 ? 'text-amber-400' : 'text-violet-300'}`}>
                   ${aiStats.todayCostUsd.toFixed(4)}
                 </span>
-                <span className="text-gray-600 text-[10px]"> / {aiStats.dailyBudgetEur}€</span>
+                <span className="text-gray-600 text-[10px]"> / {aiStats.dailyBudgetEur}&euro;</span>
               </div>
               <div className="text-center">
                 <span className="text-gray-500 block">Totale</span>
@@ -223,132 +263,158 @@ export default function DashboardPage() {
         </div>
       )}
 
+      {/* Area breakdown */}
+      {data?.byArea && (
+        <div>
+          <h2 className="text-lg font-semibold text-gray-200 mb-3">Aree Mercato</h2>
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+            {(['polymarket', 'crypto', 'stocks', 'betfair', 'forex'] as const).map((area) => {
+              const b = data.byArea[area];
+              const isActive = b.sessions > 0;
+              return (
+                <a
+                  key={area}
+                  href={AREA_LINKS[area]}
+                  className="block rounded-xl border px-5 py-4 transition-colors hover:bg-gray-800/30"
+                  style={{
+                    borderColor: `${AREA_COLORS[area]}${isActive ? '40' : '20'}`,
+                    backgroundColor: `${AREA_COLORS[area]}08`,
+                  }}
+                >
+                  <div className="flex items-center gap-2 mb-3">
+                    <span
+                      className="w-3 h-3 rounded-full"
+                      style={{ backgroundColor: AREA_COLORS[area] }}
+                    />
+                    <span className="text-sm font-medium text-gray-200">
+                      {AREA_LABELS[area]}
+                    </span>
+                    <Badge variant={isActive ? 'success' : 'default'}>
+                      {isActive ? `${b.sessions} attiv${b.sessions > 1 ? 'e' : 'a'}` : 'Inattivo'}
+                    </Badge>
+                  </div>
+                  <div className="space-y-1 text-xs font-mono">
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">Capitale</span>
+                      <span className="text-gray-300">${b.capital.toFixed(2)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-500">P&L</span>
+                      <span className={pnlClass(b.pnl)}>{formatPnl(b.pnl)}</span>
+                    </div>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {/* Top / Worst strategy */}
-      {topStrategy && worstStrategy && (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+      {topStrategy && (
+        <div className={`grid grid-cols-1 ${worstStrategy ? 'md:grid-cols-2' : ''} gap-4`}>
           <Card>
             <CardContent className="pt-4">
               <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Miglior strategia</p>
               <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-gray-100">{topStrategy.strategyCode}</p>
-                  <p className="text-xs text-gray-400">{topStrategy.strategyName}</p>
+                <div className="flex items-center gap-2">
+                  <span
+                    className="w-2.5 h-2.5 rounded-full"
+                    style={{ backgroundColor: AREA_COLORS[topStrategy.area] }}
+                  />
+                  <div>
+                    <p className="text-sm font-semibold text-gray-100">{topStrategy.strategyCode}</p>
+                    <p className="text-xs text-gray-400">{topStrategy.strategyName}</p>
+                  </div>
                 </div>
-                <p className={`text-lg font-bold font-mono ${topStrategy.metrics.totalPnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {topStrategy.metrics.totalPnlPct >= 0 ? '+' : ''}{topStrategy.metrics.totalPnlPct.toFixed(2)}%
+                <p className={`text-lg font-bold font-mono ${pnlClass(topStrategy.totalPnlPct)}`}>
+                  {formatPct(topStrategy.totalPnlPct)}
                 </p>
               </div>
             </CardContent>
           </Card>
-          <Card>
-            <CardContent className="pt-4">
-              <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Peggior strategia</p>
-              <div className="flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-semibold text-gray-100">{worstStrategy.strategyCode}</p>
-                  <p className="text-xs text-gray-400">{worstStrategy.strategyName}</p>
+          {worstStrategy && (
+            <Card>
+              <CardContent className="pt-4">
+                <p className="text-xs text-gray-500 uppercase tracking-wider mb-2">Peggior strategia</p>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-2.5 h-2.5 rounded-full"
+                      style={{ backgroundColor: AREA_COLORS[worstStrategy.area] }}
+                    />
+                    <div>
+                      <p className="text-sm font-semibold text-gray-100">{worstStrategy.strategyCode}</p>
+                      <p className="text-xs text-gray-400">{worstStrategy.strategyName}</p>
+                    </div>
+                  </div>
+                  <p className={`text-lg font-bold font-mono ${pnlClass(worstStrategy.totalPnlPct)}`}>
+                    {formatPct(worstStrategy.totalPnlPct)}
+                  </p>
                 </div>
-                <p className={`text-lg font-bold font-mono ${worstStrategy.metrics.totalPnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                  {worstStrategy.metrics.totalPnlPct >= 0 ? '+' : ''}{worstStrategy.metrics.totalPnlPct.toFixed(2)}%
-                </p>
-              </div>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
+          )}
         </div>
       )}
 
-      {/* Area overview */}
-      <div>
-        <h2 className="text-lg font-semibold text-gray-200 mb-3">Aree Mercato</h2>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {MARKET_AREAS_LIST.map((area) => {
-            const isPolymarket = area.id === 'prediction';
-            const sessionCount = isPolymarket ? polymarketSessions.length : 0;
-            const areaPnl = isPolymarket ? polymarketPnl : 0;
-            const isConnected = sessionCount > 0;
-
-            return (
-              <Card key={area.id}>
-                <CardHeader>
-                  <div className="flex items-center justify-between">
-                    <CardTitle>
-                      <span className="flex items-center gap-2">
-                        <span
-                          className="w-3 h-3 rounded-full"
-                          style={{ backgroundColor: area.color }}
-                        />
-                        {area.nameIt}
-                      </span>
-                    </CardTitle>
-                    <Badge variant={isConnected ? 'success' : 'default'}>
-                      {isConnected ? 'Attivo' : 'Non connesso'}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent>
-                  <p className="text-sm text-gray-400">{area.descriptionIt}</p>
-                  <div className="mt-3 flex gap-4 text-xs text-gray-500">
-                    <span>Strategie: {sessionCount}</span>
-                    <span className={areaPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}>
-                      P&L: {areaPnl >= 0 ? '+' : ''}${areaPnl.toFixed(2)}
-                    </span>
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Strategy sessions overview */}
-      {data && data.sessions.length > 0 && (
+      {/* Sessions table — all areas */}
+      {sorted.length > 0 && (
         <div>
           <h2 className="text-lg font-semibold text-gray-200 mb-3">
-            Sessioni Paper Trading ({data.sessions.length})
+            Sessioni Paper Trading ({sorted.length})
           </h2>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase">
-                  <th className="text-left py-2 pr-4">Strategia</th>
-                  <th className="text-right py-2 px-2">Capitale</th>
-                  <th className="text-right py-2 px-2">P&L</th>
-                  <th className="text-right py-2 px-2">P&L %</th>
-                  <th className="text-right py-2 px-2">DD Max</th>
-                  <th className="text-right py-2 px-2">Posizioni</th>
-                  <th className="text-right py-2 px-2">Ticks</th>
-                  <th className="text-right py-2 pl-2">Stato</th>
-                </tr>
-              </thead>
-              <tbody>
-                {sorted.map((s) => {
-                  const pnl = s.metrics.totalPnl;
-                  const pnlPct = s.metrics.totalPnlPct;
-                  return (
+          <Card>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase">
+                    <th className="text-left py-2 px-4">Area</th>
+                    <th className="text-left py-2 px-2">Strategia</th>
+                    <th className="text-right py-2 px-2">Capitale</th>
+                    <th className="text-right py-2 px-2">P&L</th>
+                    <th className="text-right py-2 px-2">P&L %</th>
+                    <th className="text-right py-2 px-2">DD Max</th>
+                    <th className="text-right py-2 px-2">Posizioni</th>
+                    <th className="text-right py-2 px-2">Ticks</th>
+                    <th className="text-right py-2 px-4">Stato</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {sorted.map((s) => (
                     <tr key={s.id} className="border-b border-gray-800/50 hover:bg-gray-800/30">
-                      <td className="py-2 pr-4">
+                      <td className="py-2 px-4">
+                        <div className="flex items-center gap-2">
+                          <span
+                            className="w-2 h-2 rounded-full"
+                            style={{ backgroundColor: AREA_COLORS[s.area] }}
+                          />
+                          <span className="text-xs text-gray-400">{AREA_LABELS[s.area]}</span>
+                        </div>
+                      </td>
+                      <td className="py-2 px-2">
                         <span className="font-mono text-gray-300">{s.strategyCode}</span>
                         <span className="text-gray-500 ml-2 text-xs">{s.strategyName}</span>
                       </td>
                       <td className="text-right py-2 px-2 font-mono text-gray-300">
-                        ${s.metrics.currentCapital.toFixed(2)}
+                        ${s.currentCapital.toFixed(2)}
                       </td>
-                      <td className={`text-right py-2 px-2 font-mono ${pnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {pnl >= 0 ? '+' : ''}${pnl.toFixed(2)}
+                      <td className={`text-right py-2 px-2 font-mono ${pnlClass(s.totalPnl)}`}>
+                        {formatPnl(s.totalPnl)}
                       </td>
-                      <td className={`text-right py-2 px-2 font-mono ${pnlPct >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {pnlPct >= 0 ? '+' : ''}{pnlPct.toFixed(2)}%
+                      <td className={`text-right py-2 px-2 font-mono ${pnlClass(s.totalPnlPct)}`}>
+                        {formatPct(s.totalPnlPct)}
                       </td>
                       <td className="text-right py-2 px-2 font-mono text-amber-400">
-                        {s.metrics.maxDrawdownPct.toFixed(1)}%
+                        {s.maxDrawdownPct.toFixed(1)}%
                       </td>
                       <td className="text-right py-2 px-2 font-mono text-gray-400">
-                        {s.openPositions.length}
+                        {s.openPositions}
                       </td>
                       <td className="text-right py-2 px-2 font-mono text-gray-500">
-                        {s.metrics.totalTicks}
+                        {s.totalTicks}
                       </td>
-                      <td className="text-right py-2 pl-2">
+                      <td className="text-right py-2 px-4">
                         {s.isCircuitBroken ? (
                           <Badge variant="danger">CB</Badge>
                         ) : s.status === 'running' ? (
@@ -358,52 +424,60 @@ export default function DashboardPage() {
                         )}
                       </td>
                     </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Card>
         </div>
       )}
 
-      {/* Recent activity */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Attivita&apos; recente</CardTitle>
-        </CardHeader>
-        <CardContent>
-          {allTrades.length === 0 ? (
-            <p className="text-sm text-gray-500 text-center py-6">
-              Nessun trade eseguito ancora. I cron tick sono attivi — i primi trade arriveranno presto.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {allTrades.map((trade, i) => {
-                const isOpen = trade.action === 'open';
-                const icon = isOpen ? '🟢' : trade.netPnl >= 0 ? '🟢' : '🔴';
-                return (
-                  <div key={i} className="flex items-center justify-between text-sm py-1 border-b border-gray-800/30">
-                    <div className="flex items-center gap-2">
-                      <span>{icon}</span>
-                      <span className="text-gray-400 font-mono text-xs">{trade.strategyCode}</span>
-                      <span className="text-gray-300 truncate max-w-[200px]">{trade.marketName}</span>
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <span className={`font-mono text-xs ${trade.netPnl >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                        {isOpen ? 'OPEN' : `${trade.netPnl >= 0 ? '+' : ''}$${trade.netPnl.toFixed(2)}`}
-                      </span>
-                      <span className="text-gray-600 text-xs">
-                        {new Date(trade.executedAt).toLocaleTimeString('it-IT', { hour: '2-digit', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      {/* Global equity curve — aggregate all active sessions */}
+      {activeSessions.some((s) => (s.snapshots?.length ?? 0) > 0) && (
+        <Card>
+          <CardHeader>
+            <CardTitle>Equity Curve Globale</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <AggregateEquityCurve sessions={activeSessions} />
+          </CardContent>
+        </Card>
+      )}
     </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AggregateEquityCurve — merges snapshots from all sessions
+// ---------------------------------------------------------------------------
+
+function AggregateEquityCurve({ sessions }: { sessions: UnifiedSession[] }) {
+  const totalInitial = sessions.reduce((sum, s) => sum + s.initialCapital, 0);
+
+  // Build a time-series map: aggregate equity per timestamp
+  const timeMap = new Map<string, number>();
+  for (const s of sessions) {
+    for (const snap of s.snapshots ?? []) {
+      const key = snap.timestamp;
+      timeMap.set(key, (timeMap.get(key) ?? 0) + snap.equity);
+    }
+  }
+
+  const snapshots = [...timeMap.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([timestamp, equity]) => ({
+      timestamp,
+      equity,
+      pnlPct: totalInitial > 0 ? ((equity - totalInitial) / totalInitial) * 100 : 0,
+    }));
+
+  return (
+    <EquityCurve
+      snapshots={snapshots}
+      initialCapital={totalInitial}
+      height={250}
+      areaColor="#8B5CF6"
+    />
   );
 }
 
