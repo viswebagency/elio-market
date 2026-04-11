@@ -179,6 +179,24 @@ async function buildDailySummary(): Promise<DailySummary> {
   };
 
   // =======================================================================
+  // Stocks — from stock_paper_trades + stock_paper_sessions + stock_paper_positions
+  // =======================================================================
+
+  const stocks = await buildAreaSummary(db, startOfDay, endOfDay, 'stock');
+
+  // =======================================================================
+  // Betfair — from betfair_paper_trades + betfair_paper_sessions + betfair_paper_positions
+  // =======================================================================
+
+  const betfair = await buildAreaSummary(db, startOfDay, endOfDay, 'betfair');
+
+  // =======================================================================
+  // Forex — from forex_paper_trades + forex_paper_sessions + forex_paper_positions
+  // =======================================================================
+
+  const forex = await buildAreaSummary(db, startOfDay, endOfDay, 'forex');
+
+  // =======================================================================
   // Live Trading — from trades table (execution_type='live')
   // =======================================================================
 
@@ -188,16 +206,18 @@ async function buildDailySummary(): Promise<DailySummary> {
   // Aggregated totals
   // =======================================================================
 
-  const totalPnl = polymarket.pnl + crypto.pnl;
-  const totalInitial = pmInitial + crInitial;
-  const totalTradesCount = polymarket.tradesCount + crypto.tradesCount;
-  const totalWinning = pmWinning.length + crWinning.length;
-  const totalOpenPositions = polymarket.openPositions + crypto.openPositions;
-  const totalExposure = polymarket.totalExposure + crypto.totalExposure;
+  const allAreas = [polymarket, crypto, stocks, betfair, forex];
+  const totalPnl = allAreas.reduce((sum, a) => sum + a.pnl, 0);
+  const totalInitial = pmInitial + crInitial +
+    stocks.totalExposure + betfair.totalExposure + forex.totalExposure; // approximation for non-pm/crypto
+  const totalTradesCount = allAreas.reduce((sum, a) => sum + a.tradesCount, 0);
+  const totalWinningCount = allAreas.reduce((sum, a) => sum + Math.round(a.winRate * a.tradesCount), 0);
+  const totalOpenPositions = allAreas.reduce((sum, a) => sum + a.openPositions, 0);
+  const totalExposure = allAreas.reduce((sum, a) => sum + a.totalExposure, 0);
 
   // Global best/worst across areas
-  const allBests = [polymarket.bestTrade, crypto.bestTrade].filter(Boolean) as { market: string; pnl: number }[];
-  const allWorsts = [polymarket.worstTrade, crypto.worstTrade].filter(Boolean) as { market: string; pnl: number }[];
+  const allBests = allAreas.map(a => a.bestTrade).filter(Boolean) as { market: string; pnl: number }[];
+  const allWorsts = allAreas.map(a => a.worstTrade).filter(Boolean) as { market: string; pnl: number }[];
   const bestTrade = allBests.length > 0 ? allBests.sort((a, b) => b.pnl - a.pnl)[0] : undefined;
   const worstTrade = allWorsts.length > 0 ? allWorsts.sort((a, b) => a.pnl - b.pnl)[0] : undefined;
 
@@ -206,13 +226,16 @@ async function buildDailySummary(): Promise<DailySummary> {
     pnl: totalPnl,
     pnlPercent: totalInitial > 0 ? (totalPnl / totalInitial) * 100 : 0,
     tradesCount: totalTradesCount,
-    winRate: totalTradesCount > 0 ? totalWinning / totalTradesCount : 0,
+    winRate: totalTradesCount > 0 ? totalWinningCount / totalTradesCount : 0,
     openPositions: totalOpenPositions,
     totalExposure,
     bestTrade,
     worstTrade,
     polymarket,
     crypto,
+    stocks,
+    betfair,
+    forex,
     live,
   };
 }
@@ -346,6 +369,73 @@ async function buildLiveSummary(
     circuitBreakerTripped: circuitBreakerLive.isTripped,
     portfolioInSync,
     portfolioDivergences: portfolioDivergences.length > 0 ? portfolioDivergences : undefined,
+  };
+}
+
+/**
+ * Generic area summary builder for stock/betfair/forex paper trading.
+ * All three follow the same {area}_paper_sessions / _positions / _trades pattern.
+ */
+async function buildAreaSummary(
+  db: ReturnType<typeof createUntypedAdminClient>,
+  startOfDay: string,
+  endOfDay: string,
+  area: 'stock' | 'betfair' | 'forex',
+): Promise<AreaSummary> {
+  const sessionsTable = `${area}_paper_sessions`;
+  const positionsTable = `${area}_paper_positions`;
+  const tradesTable = `${area}_paper_trades`;
+
+  const { data: areaTrades } = await db
+    .from(tradesTable)
+    .select('*')
+    .gte('executed_at', startOfDay)
+    .lte('executed_at', endOfDay)
+    .order('executed_at', { ascending: true });
+
+  const { data: areaSessions } = await db
+    .from(sessionsTable)
+    .select('initial_capital')
+    .in('status', ['running', 'paused']);
+
+  const { count: openCount } = await db
+    .from(positionsTable)
+    .select('id', { count: 'exact', head: true })
+    .eq('status', 'open');
+
+  const aInitial = (areaSessions ?? []).reduce((sum, s) => sum + (Number(s.initial_capital) || 0), 0);
+
+  const closedTrades = (areaTrades ?? []).filter(
+    (t) => t.action === 'full_close' || t.action === 'circuit_breaker',
+  );
+  const winning = closedTrades.filter((t) => Number(t.pnl) > 0);
+  const pnl = closedTrades.reduce((sum, t) => sum + (Number(t.pnl) ?? 0), 0);
+  const pnlPct = aInitial > 0 ? (pnl / aInitial) * 100 : 0;
+
+  const { data: openPositions } = await db
+    .from(positionsTable)
+    .select('stake')
+    .eq('status', 'open');
+  const exposure = (openPositions ?? []).reduce((sum, p) => sum + (Number(p.stake) ?? 0), 0);
+
+  let bestTrade: AreaSummary['bestTrade'] = undefined;
+  let worstTrade: AreaSummary['worstTrade'] = undefined;
+  if (closedTrades.length > 0) {
+    const sorted = [...closedTrades].sort((a, b) => Number(b.pnl) - Number(a.pnl));
+    if (Number(sorted[0].pnl) > 0) bestTrade = { market: sorted[0].symbol, pnl: Number(sorted[0].pnl) };
+    const last = sorted[sorted.length - 1];
+    if (Number(last.pnl) < 0) worstTrade = { market: last.symbol, pnl: Number(last.pnl) };
+  }
+
+  return {
+    pnl,
+    pnlPercent: pnlPct,
+    tradesCount: closedTrades.length,
+    winRate: closedTrades.length > 0 ? winning.length / closedTrades.length : 0,
+    openPositions: openCount ?? 0,
+    totalExposure: exposure,
+    bestTrade,
+    worstTrade,
   };
 }
 

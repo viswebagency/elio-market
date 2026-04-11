@@ -13,13 +13,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getPaperTradingManager } from '@/core/paper-trading/manager';
 import { getCryptoPaperTradingManager } from '@/core/paper-trading/crypto-manager';
+import { getStockPaperTradingManager } from '@/core/paper-trading/stock-manager';
+import { getBetfairPaperTradingManager } from '@/core/paper-trading/betfair-manager';
+import { getForexPaperTradingManager } from '@/core/paper-trading/forex-manager';
 import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 
 export const dynamic = 'force-dynamic';
 
 interface UnifiedSession {
   id: string;
-  area: 'polymarket' | 'crypto';
+  area: 'polymarket' | 'crypto' | 'stocks' | 'betfair' | 'forex';
   strategyCode: string;
   strategyName: string;
   status: string;
@@ -33,7 +36,9 @@ interface UnifiedSession {
   lastTickAt: string | null;
   startedAt: string;
   isCircuitBroken: boolean;
-  pairs?: string[];
+  pairs?: string[];     // crypto, forex
+  tickers?: string[];   // stocks
+  eventTypes?: string[]; // betfair
   snapshots?: { timestamp: string; equity: number; pnlPct: number }[];
 }
 
@@ -47,6 +52,9 @@ interface UnifiedOverview {
   byArea: {
     polymarket: { capital: number; pnl: number; sessions: number };
     crypto: { capital: number; pnl: number; sessions: number };
+    stocks: { capital: number; pnl: number; sessions: number };
+    betfair: { capital: number; pnl: number; sessions: number };
+    forex: { capital: number; pnl: number; sessions: number };
   };
   sessions: UnifiedSession[];
 }
@@ -61,6 +69,9 @@ export async function GET(request: NextRequest) {
     const byArea = {
       polymarket: { capital: 0, pnl: 0, sessions: 0 },
       crypto: { capital: 0, pnl: 0, sessions: 0 },
+      stocks: { capital: 0, pnl: 0, sessions: 0 },
+      betfair: { capital: 0, pnl: 0, sessions: 0 },
+      forex: { capital: 0, pnl: 0, sessions: 0 },
     };
 
     // Fetch Polymarket data
@@ -128,6 +139,105 @@ export async function GET(request: NextRequest) {
       }
     }
 
+    // Fetch Stocks data
+    if (areaFilter === 'all' || areaFilter === 'stocks') {
+      const stockManager = getStockPaperTradingManager();
+      const stockOverview = await stockManager.getOverviewFromDb();
+
+      for (const s of stockOverview.sessions) {
+        sessions.push({
+          id: s.sessionId,
+          area: 'stocks',
+          strategyCode: s.strategyCode,
+          strategyName: s.strategyName,
+          status: s.status,
+          initialCapital: s.initialCapital,
+          currentCapital: s.currentCapital,
+          totalPnl: s.totalPnl,
+          totalPnlPct: s.totalPnlPct,
+          maxDrawdownPct: s.maxDrawdownPct,
+          totalTicks: s.totalTicks,
+          openPositions: s.openPositions,
+          lastTickAt: s.lastTickAt,
+          startedAt: s.startedAt,
+          isCircuitBroken: s.isCircuitBroken,
+          tickers: s.tickers,
+        });
+
+        if (s.status === 'running' || s.status === 'paused') {
+          byArea.stocks.capital += s.currentCapital;
+          byArea.stocks.pnl += s.totalPnl;
+          byArea.stocks.sessions++;
+        }
+      }
+    }
+
+    // Fetch Betfair data
+    if (areaFilter === 'all' || areaFilter === 'betfair') {
+      const betfairManager = getBetfairPaperTradingManager();
+      const betfairOverview = await betfairManager.getOverviewFromDb();
+
+      for (const s of betfairOverview.sessions) {
+        sessions.push({
+          id: s.sessionId,
+          area: 'betfair',
+          strategyCode: s.strategyCode,
+          strategyName: s.strategyName,
+          status: s.status,
+          initialCapital: s.initialCapital,
+          currentCapital: s.currentCapital,
+          totalPnl: s.totalPnl,
+          totalPnlPct: s.totalPnlPct,
+          maxDrawdownPct: s.maxDrawdownPct,
+          totalTicks: s.totalTicks,
+          openPositions: s.openPositions,
+          lastTickAt: s.lastTickAt,
+          startedAt: s.startedAt,
+          isCircuitBroken: s.isCircuitBroken,
+          eventTypes: s.eventTypes,
+        });
+
+        if (s.status === 'running' || s.status === 'paused') {
+          byArea.betfair.capital += s.currentCapital;
+          byArea.betfair.pnl += s.totalPnl;
+          byArea.betfair.sessions++;
+        }
+      }
+    }
+
+    // Fetch Forex data
+    if (areaFilter === 'all' || areaFilter === 'forex') {
+      const forexManager = getForexPaperTradingManager();
+      const forexOverview = await forexManager.getOverviewFromDb();
+
+      for (const s of forexOverview.sessions) {
+        sessions.push({
+          id: s.sessionId,
+          area: 'forex',
+          strategyCode: s.strategyCode,
+          strategyName: s.strategyName,
+          status: s.status,
+          initialCapital: s.initialCapital,
+          currentCapital: s.currentCapital,
+          totalPnl: s.totalPnl,
+          totalPnlPct: s.totalPnlPct,
+          maxDrawdownPct: s.maxDrawdownPct,
+          totalTicks: s.totalTicks,
+          openPositions: s.openPositions,
+          lastTickAt: s.lastTickAt,
+          startedAt: s.startedAt,
+          isCircuitBroken: s.isCircuitBroken,
+          pairs: s.pairs,
+        });
+
+        if (s.status === 'running' || s.status === 'paused') {
+          byArea.forex.capital += s.currentCapital;
+          byArea.forex.pnl += s.totalPnl;
+          byArea.forex.sessions++;
+        }
+      }
+    }
+
     // Load equity curve snapshots if requested
     if (includeSnapshots) {
       const db = createUntypedAdminClient();
@@ -165,8 +275,8 @@ export async function GET(request: NextRequest) {
     }
 
     // Compute totals
-    const totalCapital = byArea.polymarket.capital + byArea.crypto.capital;
-    const totalPnl = byArea.polymarket.pnl + byArea.crypto.pnl;
+    const totalCapital = byArea.polymarket.capital + byArea.crypto.capital + byArea.stocks.capital + byArea.betfair.capital + byArea.forex.capital;
+    const totalPnl = byArea.polymarket.pnl + byArea.crypto.pnl + byArea.stocks.pnl + byArea.betfair.pnl + byArea.forex.pnl;
     const totalInitial = sessions
       .filter((s) => s.status === 'running' || s.status === 'paused')
       .reduce((sum, s) => sum + s.initialCapital, 0);

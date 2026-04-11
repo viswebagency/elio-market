@@ -10,7 +10,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 import { POLYMARKET_STRATEGIES } from '@/core/strategies/polymarket-strategies';
-import { runFullPipeline } from '@/core/backtest/pipeline';
+import { STOCK_STRATEGIES } from '@/core/strategies/stock-strategies';
+import { FOREX_STRATEGIES } from '@/core/strategies/forex-strategies';
+import { runFullPipeline, PipelineResults } from '@/core/backtest/pipeline';
+import { runStockFullPipeline } from '@/core/backtest/stock-pipeline';
+import { runForexFullPipeline } from '@/core/backtest/forex-pipeline';
 
 export const dynamic = 'force-dynamic';
 export const maxDuration = 60;
@@ -35,15 +39,25 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: false, error: 'Missing code' }, { status: 400 });
     }
 
-    const seed = POLYMARKET_STRATEGIES.find(s => s.code === code);
-    if (!seed) {
+    // Detect area by code prefix and run the appropriate pipeline
+    let results: PipelineResults;
+
+    const stockSeed = STOCK_STRATEGIES.find(s => s.code === code);
+    const forexSeed = FOREX_STRATEGIES.find(s => s.code === code);
+    const pmSeed = POLYMARKET_STRATEGIES.find(s => s.code === code);
+
+    if (stockSeed) {
+      results = runStockFullPipeline(stockSeed);
+    } else if (forexSeed) {
+      results = runForexFullPipeline(forexSeed);
+    } else if (pmSeed) {
+      results = runFullPipeline(pmSeed);
+    } else {
       return NextResponse.json({ ok: false, error: `Strategy ${code} not found` }, { status: 404 });
     }
 
     const db = createUntypedAdminClient();
     const startTime = Date.now();
-
-    const results = runFullPipeline(seed);
 
     // Save to DB
     const { data: dbStrategy } = await db

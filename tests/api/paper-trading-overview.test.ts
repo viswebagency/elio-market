@@ -27,6 +27,39 @@ vi.mock('@/core/paper-trading/crypto-manager', () => ({
 }));
 
 // ---------------------------------------------------------------------------
+// Mock Stock manager
+// ---------------------------------------------------------------------------
+
+const mockStockGetOverviewFromDb = vi.fn();
+vi.mock('@/core/paper-trading/stock-manager', () => ({
+  getStockPaperTradingManager: () => ({
+    getOverviewFromDb: mockStockGetOverviewFromDb,
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock Betfair manager
+// ---------------------------------------------------------------------------
+
+const mockBetfairGetOverviewFromDb = vi.fn();
+vi.mock('@/core/paper-trading/betfair-manager', () => ({
+  getBetfairPaperTradingManager: () => ({
+    getOverviewFromDb: mockBetfairGetOverviewFromDb,
+  }),
+}));
+
+// ---------------------------------------------------------------------------
+// Mock Forex manager
+// ---------------------------------------------------------------------------
+
+const mockForexGetOverviewFromDb = vi.fn();
+vi.mock('@/core/paper-trading/forex-manager', () => ({
+  getForexPaperTradingManager: () => ({
+    getOverviewFromDb: mockForexGetOverviewFromDb,
+  }),
+}));
+
+// ---------------------------------------------------------------------------
 // Mock Supabase (for snapshots)
 // ---------------------------------------------------------------------------
 
@@ -193,6 +226,18 @@ describe('GET /api/paper-trading/overview', () => {
     vi.clearAllMocks();
     mockPolymarketGetStatus.mockResolvedValue(createPolymarketOverview());
     mockCryptoGetOverviewFromDb.mockResolvedValue(createCryptoOverview());
+    mockStockGetOverviewFromDb.mockResolvedValue({
+      totalSessions: 0, activeSessions: 0, stoppedSessions: 0,
+      totalCapital: 0, totalPnl: 0, totalPnlPct: 0, sessions: [],
+    });
+    mockBetfairGetOverviewFromDb.mockResolvedValue({
+      totalSessions: 0, activeSessions: 0, stoppedSessions: 0,
+      totalCapital: 0, totalPnl: 0, totalPnlPct: 0, sessions: [],
+    });
+    mockForexGetOverviewFromDb.mockResolvedValue({
+      totalSessions: 0, activeSessions: 0, stoppedSessions: 0,
+      totalCapital: 0, totalPnl: 0, totalPnlPct: 0, sessions: [],
+    });
 
     const mod = await import('@/app/api/paper-trading/overview/route');
     GET = mod.GET;

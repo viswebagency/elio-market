@@ -114,7 +114,82 @@ export async function GET(request: NextRequest) {
     }
 
     // -----------------------------------------------------------------
-    // 3. Live trading → live_equity_snapshots
+    // 3. Stock sessions → paper_trading_snapshots (area='stocks')
+    // -----------------------------------------------------------------
+    const { data: stockSessions } = await db
+      .from('stock_paper_sessions')
+      .select('id, current_capital, total_pnl_pct')
+      .in('status', ['running', 'paused']);
+
+    for (const ss of stockSessions ?? []) {
+      const { error } = await db.from('paper_trading_snapshots').insert({
+        session_id: ss.id,
+        area: 'stocks',
+        equity: ss.current_capital,
+        pnl_pct: ss.total_pnl_pct ?? 0,
+        open_positions: 0,
+      });
+
+      if (error) {
+        console.error(`[Cron/equity-snapshot] stocks ${ss.id}: ${error.message}`);
+        snapshotsSkipped++;
+      } else {
+        snapshotsCreated++;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 4. Betfair sessions → paper_trading_snapshots (area='betfair')
+    // -----------------------------------------------------------------
+    const { data: betfairSessions } = await db
+      .from('betfair_paper_sessions')
+      .select('id, current_capital, total_pnl_pct')
+      .in('status', ['running', 'paused']);
+
+    for (const bs of betfairSessions ?? []) {
+      const { error } = await db.from('paper_trading_snapshots').insert({
+        session_id: bs.id,
+        area: 'betfair',
+        equity: bs.current_capital,
+        pnl_pct: bs.total_pnl_pct ?? 0,
+        open_positions: 0,
+      });
+
+      if (error) {
+        console.error(`[Cron/equity-snapshot] betfair ${bs.id}: ${error.message}`);
+        snapshotsSkipped++;
+      } else {
+        snapshotsCreated++;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 5. Forex sessions → paper_trading_snapshots (area='forex')
+    // -----------------------------------------------------------------
+    const { data: forexSessions } = await db
+      .from('forex_paper_sessions')
+      .select('id, current_capital, total_pnl_pct')
+      .in('status', ['running', 'paused']);
+
+    for (const fs of forexSessions ?? []) {
+      const { error } = await db.from('paper_trading_snapshots').insert({
+        session_id: fs.id,
+        area: 'forex',
+        equity: fs.current_capital,
+        pnl_pct: fs.total_pnl_pct ?? 0,
+        open_positions: 0,
+      });
+
+      if (error) {
+        console.error(`[Cron/equity-snapshot] forex ${fs.id}: ${error.message}`);
+        snapshotsSkipped++;
+      } else {
+        snapshotsCreated++;
+      }
+    }
+
+    // -----------------------------------------------------------------
+    // 6. Live trading → live_equity_snapshots
     // -----------------------------------------------------------------
     const { data: liveBankrolls } = await db
       .from('live_bankroll')

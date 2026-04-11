@@ -32,7 +32,7 @@ export interface PerformanceWarningInput {
   sessionId: string;
   strategyCode: string;
   strategyName: string;
-  area: 'crypto' | 'polymarket';
+  area: 'crypto' | 'polymarket' | 'stocks' | 'betfair' | 'forex';
   /** Drawdown attuale in percentuale (es. 8.5 = 8.5%) */
   currentDrawdownPct: number;
   /** Limite circuit breaker in percentuale (es. 15 = 15%) */

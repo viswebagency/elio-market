@@ -35,7 +35,7 @@ export class StocksPlugin implements MarketPlugin {
     this.status = 'initializing';
     try {
       if (!config.apiKey) throw new Error('Stock data API key required');
-      this.adapter = new StocksAdapter(config.apiKey);
+      this.adapter = new StocksAdapter({ apiKey: config.apiKey });
       this.status = 'ready';
     } catch (error) {
       this.status = 'error';
@@ -66,8 +66,10 @@ export class StocksPlugin implements MarketPlugin {
   async getCandles(symbol: string, interval: TimeInterval, limit?: number): Promise<NormalizedCandle[]> {
     this.ensureReady();
     const raw = symbol.replace('STK:', '');
-    const intervalMap: Record<string, string> = { '1d': 'daily', '1w': 'weekly', '1M': 'monthly' };
-    const candles = await this.adapter!.getCandles(raw, intervalMap[interval] ?? 'daily');
+    const intervalMap: Record<string, '1min' | '5min' | '15min' | '30min' | '1h' | '4h' | '1day' | '1week' | '1month'> = {
+      '1m': '1min', '5m': '5min', '15m': '15min', '1h': '1h', '4h': '4h', '1d': '1day', '1w': '1week', '1M': '1month',
+    };
+    const candles = await this.adapter!.getCandles(raw, intervalMap[interval] ?? '1day', limit ?? 100);
     return candles
       .slice(0, limit ?? 100)
       .map((c) => normalizeStockCandle(raw, c, interval));

@@ -34,7 +34,7 @@ export interface AutoRotationResult {
  * - Otherwise: close old session, create new one + alert
  */
 export async function processExpiredCooldowns(
-  table: 'crypto_paper_sessions' | 'paper_sessions',
+  table: 'crypto_paper_sessions' | 'paper_sessions' | 'stock_paper_sessions' | 'betfair_paper_sessions' | 'forex_paper_sessions',
   rotateSession: (session: ExpiredSession) => Promise<string>,
 ): Promise<AutoRotationResult> {
   const db = createUntypedAdminClient();
@@ -50,7 +50,7 @@ export async function processExpiredCooldowns(
   if (error || !expired || expired.length === 0) return result;
 
   const client = getTelegramClient();
-  const area = table === 'crypto_paper_sessions' ? 'CRYPTO' : 'POLYMARKET';
+  const area = table === 'crypto_paper_sessions' ? 'CRYPTO' : table === 'stock_paper_sessions' ? 'STOCK' : table === 'betfair_paper_sessions' ? 'BETFAIR' : table === 'forex_paper_sessions' ? 'FOREX' : 'POLYMARKET';
 
   for (const session of expired) {
     try {

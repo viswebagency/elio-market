@@ -124,6 +124,9 @@ export interface DailySummary {
   worstTrade?: { market: string; pnl: number };
   polymarket?: AreaSummary;
   crypto?: AreaSummary;
+  stocks?: AreaSummary;
+  betfair?: AreaSummary;
+  forex?: AreaSummary;
   live?: LiveTradingSummary;
 }
 
@@ -139,7 +142,7 @@ export interface CircuitBreakerDetails {
 export interface PerformanceWarningDetails {
   strategyCode: string;
   strategyName: string;
-  area: 'crypto' | 'polymarket';
+  area: 'crypto' | 'polymarket' | 'stocks' | 'betfair' | 'forex';
   warningLevel: 1 | 2;
   currentDrawdownPct: number;
   circuitBreakerLimitPct: number;
@@ -392,6 +395,18 @@ export function formatDailySummary(summary: DailySummary): string {
 
   if (summary.crypto) {
     lines.push('', ...formatAreaSection('Crypto', summary.crypto));
+  }
+
+  if (summary.stocks) {
+    lines.push('', ...formatAreaSection('Stocks', summary.stocks));
+  }
+
+  if (summary.betfair) {
+    lines.push('', ...formatAreaSection('Betfair', summary.betfair));
+  }
+
+  if (summary.forex) {
+    lines.push('', ...formatAreaSection('Forex', summary.forex));
   }
 
   // Live trading section

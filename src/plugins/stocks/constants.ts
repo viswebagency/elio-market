@@ -1,13 +1,16 @@
 /**
- * Stocks constants — broker endpoints and configuration.
+ * Stocks constants — broker endpoints, ticker lists, and configuration.
  */
 
-/** Interactive Brokers endpoints */
+/** Interactive Brokers endpoints (Phase 2 — live trading) */
 export const IBKR_CLIENT_PORTAL_API = 'https://localhost:5000/v1/api';
 export const IBKR_TWS_API_PORT = 7496;
 export const IBKR_PAPER_API_PORT = 7497;
 
-/** Alpha Vantage (free data) */
+/** Twelve Data (free market data — 8 calls/min, 800/day, batch support) */
+export const TWELVE_DATA_API_URL = 'https://api.twelvedata.com';
+
+/** Alpha Vantage (free data — legacy, kept for reference) */
 export const ALPHA_VANTAGE_API = 'https://www.alphavantage.co/query';
 
 /** Yahoo Finance (unofficial) */
@@ -22,6 +25,25 @@ export const STOCK_EXCHANGES = {
 } as const;
 
 export const STOCK_RATE_LIMITS = {
+  twelveData: { requestsPerMinute: 8, requestsPerDay: 800 },
   alphaVantage: { requestsPerMinute: 5 },
   ibkr: { requestsPerSecond: 50 },
 };
+
+/** US top tickers — used for paper trading strategies */
+export const STOCK_US_TICKERS = [
+  'AAPL', 'MSFT', 'GOOGL', 'AMZN', 'TSLA', 'META', 'NVDA',
+] as const;
+
+/** EU tickers — Finnhub uses exchange suffix (e.g., SAP.DE for XETRA) */
+export const STOCK_EU_TICKERS = [
+  'SAP.DE',    // SAP — XETRA
+  'ASML.AS',   // ASML — Amsterdam
+  'SIE.DE',    // Siemens — XETRA
+] as const;
+
+/** All monitored tickers */
+export const STOCK_ALL_TICKERS = [
+  ...STOCK_US_TICKERS,
+  ...STOCK_EU_TICKERS,
+] as const;

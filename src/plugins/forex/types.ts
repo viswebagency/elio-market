@@ -13,6 +13,8 @@ export interface ForexPair {
   low24h: number;
   volume24h: number;
   timestamp: string;
+  open?: number;          // Opening price (from data adapter)
+  previousClose?: number; // Previous close (for price change calculation)
 }
 
 export interface ForexCandle {
