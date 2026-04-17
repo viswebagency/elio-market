@@ -49,11 +49,17 @@ export async function GET(request: NextRequest) {
     });
   }
 
+  const apiKey = process.env.TWELVE_DATA_API_KEY;
+  if (!apiKey) {
+    console.log('[Cron/stock-tick] TWELVE_DATA_API_KEY not configured — skipping tick');
+    return NextResponse.json({
+      ok: true,
+      skipped: true,
+      reason: 'TWELVE_DATA_API_KEY not configured',
+    });
+  }
+
   try {
-    const apiKey = process.env.TWELVE_DATA_API_KEY;
-    if (!apiKey) {
-      throw new Error('TWELVE_DATA_API_KEY not configured');
-    }
 
     const manager = getStockPaperTradingManager();
 
