@@ -17,14 +17,6 @@
       "schedule": "0 22 * * *"
     },
     {
-      "path": "/api/cron/crypto-tick",
-      "schedule": "*/2 * * * *"
-    },
-    {
-      "path": "/api/cron/live-tick",
-      "schedule": "*/1 * * * *"
-    },
-    {
       "path": "/api/cron/stock-tick",
       "schedule": "*/15 * * * *"
     },

@@ -42,3 +42,6 @@ next-env.d.ts
 
 # historical data cache (downloaded from exchanges)
 /data/crypto-historical/*.json
+
+# Mac Mini PM2 ecosystem (not used in prod Vercel)
+ecosystem.macmini.config.js
