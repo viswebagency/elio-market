@@ -70,7 +70,7 @@ export function createPortfolioDbClient(db: {
         .select('id, asset_symbol, quantity, status, direction')
         .eq('user_id', userId)
         .eq('execution_type', 'live')
-        .in('status', ['open', 'pending']);
+        .eq('status', 'open');
 
       if (error) {
         throw new Error(`Failed to load live positions: ${error.message}`);
