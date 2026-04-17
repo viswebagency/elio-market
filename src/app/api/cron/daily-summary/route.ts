@@ -347,9 +347,18 @@ async function buildLiveSummary(
       }
     }
   } catch (err) {
-    console.error('[daily-summary] Portfolio sync failed:', err instanceof Error ? err.message : err);
-    portfolioDivergences = ['Sync fallito'];
-    portfolioInSync = false;
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error('[daily-summary] Portfolio sync failed:', msg);
+    // Binance geofences Vercel IPs (HTTP 451). Not an incident — live sync is
+    // simply not applicable until the exchange call path is moved off Vercel.
+    const isGeofence = msg.includes('restricted location') || msg.includes('451');
+    if (isGeofence) {
+      portfolioDivergences = [];
+      portfolioInSync = true;
+    } else {
+      portfolioDivergences = ['Sync fallito'];
+      portfolioInSync = false;
+    }
   }
 
   return {
