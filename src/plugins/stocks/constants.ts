@@ -47,3 +47,11 @@ export const STOCK_ALL_TICKERS = [
   ...STOCK_US_TICKERS,
   ...STOCK_EU_TICKERS,
 ] as const;
+
+/**
+ * Tickers fetched per cron tick on Twelve Data free tier (800 credits/day).
+ * Paired with a 15-min cron to stay under budget.
+ */
+export const STOCK_FREE_TIER_TICKERS = [
+  'AAPL', 'MSFT', 'NVDA',
+] as const;

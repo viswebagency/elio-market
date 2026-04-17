@@ -6,6 +6,14 @@ export const FOREX_MAJOR_PAIRS = [
   'EURUSD', 'GBPUSD', 'USDJPY', 'USDCHF', 'AUDUSD', 'USDCAD', 'NZDUSD',
 ] as const;
 
+/**
+ * Pairs fetched per cron tick on Twelve Data free tier (800 credits/day).
+ * Paired with a 15-min cron to stay under budget.
+ */
+export const FOREX_FREE_TIER_PAIRS = [
+  'EURUSD', 'GBPUSD', 'USDJPY',
+] as const;
+
 export const FOREX_CROSS_PAIRS = [
   'EURGBP', 'EURJPY', 'EURCHF', 'EURAUD', 'GBPJPY', 'GBPCHF', 'AUDJPY',
 ] as const;

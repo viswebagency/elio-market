@@ -26,7 +26,7 @@
     },
     {
       "path": "/api/cron/stock-tick",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/15 * * * *"
     },
     {
       "path": "/api/cron/betfair-tick",
@@ -34,7 +34,7 @@
     },
     {
       "path": "/api/cron/forex-tick",
-      "schedule": "*/5 * * * *"
+      "schedule": "*/15 * * * *"
     }
   ]
 }

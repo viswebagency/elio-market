@@ -18,7 +18,7 @@ import { MarketArea } from '../types/common';
 import { SignalType } from '../engine/signals';
 import { StocksAdapter, StockAdapterConfig } from '@/plugins/stocks/adapter';
 import { StockStrategySeed, STOCK_STRATEGY_MAP } from '../strategies/stock-strategies';
-import { STOCK_ALL_TICKERS } from '@/plugins/stocks/constants';
+import { STOCK_ALL_TICKERS, STOCK_FREE_TIER_TICKERS } from '@/plugins/stocks/constants';
 import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 
 // ============================================================================
@@ -763,7 +763,7 @@ export class StockPaperTradingManager {
   private async fetchStockSnapshots(): Promise<MarketSnapshot[]> {
     if (!this.adapter) return [];
 
-    const tickers = [...STOCK_ALL_TICKERS];
+    const tickers = [...STOCK_FREE_TIER_TICKERS];
 
     try {
       // Single batch call for all tickers

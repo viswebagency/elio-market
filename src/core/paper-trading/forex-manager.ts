@@ -19,7 +19,7 @@ import { MarketArea } from '../types/common';
 import { SignalType } from '../engine/signals';
 import { ForexDataAdapter, ForexDataAdapterConfig } from '@/plugins/forex/data-adapter';
 import { ForexStrategySeed, FOREX_STRATEGY_MAP } from '../strategies/forex-strategies';
-import { FOREX_MAJOR_PAIRS } from '@/plugins/forex/constants';
+import { FOREX_MAJOR_PAIRS, FOREX_FREE_TIER_PAIRS } from '@/plugins/forex/constants';
 import { createUntypedAdminClient } from '@/lib/db/supabase/admin';
 
 // ============================================================================
@@ -763,7 +763,7 @@ export class ForexPaperTradingManager {
   private async fetchForexSnapshots(): Promise<MarketSnapshot[]> {
     if (!this.adapter) return [];
 
-    const pairs = [...FOREX_MAJOR_PAIRS];
+    const pairs = [...FOREX_FREE_TIER_PAIRS];
 
     try {
       const quotes = await this.adapter.getBatchQuotes(pairs as unknown as string[]);
